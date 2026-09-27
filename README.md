@@ -108,7 +108,16 @@ Both tools screen every work with the same rules (`govbooks/copyright_policy.py`
 - **NIST Standard Reference Data:** it can be copyrighted.
 - **Outside the US:** the US may claim copyright abroad, so check before choosing worldwide sales territories.
 
-**States.** `govbooks/data/state_copyright.json` records each state's rule (`public_domain`, `claims_copyright`, `mixed` or `unclear`), with the statutes or cases behind it, sources and a confidence level. States without clear evidence are marked `unclear` rather than guessed. See the table with `govweb copyright`, or one state with `govweb copyright --state TX`.
+**States.** `govbooks/data/state_copyright.json` records each state's rule, with the statutes, cases or official statements behind it, sources and a confidence level. It was researched in September 2026, mainly from Harvard's [State Copyright Resource Center](https://copyright.lib.harvard.edu/states/), state statutes and attorney general opinions. States without clear evidence are marked `unclear` rather than guessed.
+
+| Rule | States | Screened as |
+|---|---|---|
+| `public_domain` | California and Florida (high confidence); North Carolina (medium) | `likely_public_domain` when high confidence, otherwise `check` |
+| `claims_copyright` | 24 states, e.g. Colorado, Michigan, Nevada, Pennsylvania | `likely_copyrighted` |
+| `mixed` | Illinois, Massachusetts, Minnesota, Texas | `check` |
+| `unclear` | 19 states | `check` |
+
+See the whole table with `govweb copyright`, or one state with `govweb copyright --state TX`. Twenty states rest on low-confidence evidence (agency website terms, library statements), so re-check the sources before relying on them. Two things hold in every state: laws and court opinions themselves are free to use, and even in California and Florida, work by contractors or third parties can still be copyrighted.
 
 `market check` and `report` include only the first two values unless you pass `--any-rights`; `govweb docs --reusable` does the same. This is a screening aid, not legal advice: read each item's own rights notice. Also, Kindle Direct Publishing accepts public-domain books only when you add something new (annotations, translation, illustrations, etc.). Read KDP's current public-domain content guidelines before publishing.
 

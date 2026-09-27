@@ -1,0 +1,660 @@
+[
+  {
+    "abbr": "AL",
+    "state": "Alabama",
+    "status": "unclear",
+    "summary": "No Alabama statute, court decision or attorney general opinion on copyright in state agency works was found; the public records law (Ala. Code 36-12-40) gives a right to inspect and copy public writings but says nothing about reuse or copyright. Treat Alabama agency publications as possibly copyrighted and look for a notice or ask the agency.",
+    "key_law": "Ala. Code § 36-12-40 (public records access only; does not address copyright)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/alabama/",
+      "https://law.justia.com/codes/alabama/2006/26146/36-12-40.html"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "AK",
+    "state": "Alaska",
+    "status": "claims_copyright",
+    "summary": "Alaska state publications are not automatically public domain: the Alaska State Library says copyright law generally applies to them, statutes let agencies hold copyright (e.g. software), and agencies such as Fish and Game say all their works are copyrighted and require permission before republication. Get permission unless a specific work says it is public domain.",
+    "key_law": "AS 44.99.400 (agency may hold copyright in software); AS 16.05.050 (Dept. of Fish and Game copyright authority); AS 29.71.060 and AS 26.27.100 (other specific grants, per Harvard); AS 40.25.110 (public records access)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/alaska/",
+      "https://lam.alaska.gov/statepubs",
+      "https://codes.findlaw.com/ak/title-44-state-government/ak-st-sect-44-99-400/",
+      "https://www.adfg.alaska.gov/index.cfm?adfg=home.copyright"
+    ],
+    "confidence": "high",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "AZ",
+    "state": "Arizona",
+    "status": "claims_copyright",
+    "summary": "The Arizona State Library (part of the Secretary of State) says works of Arizona state government are not in the public domain and are protected by copyright. Commercial use of public records requires the permission and fee procedure in A.R.S. 39-121.03. No general statute on agency copyright was found; this rests on the state's own stated position.",
+    "key_law": "A.R.S. § 39-121.03 (commercial use of public records); Arizona State Library website policy",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/arizona/",
+      "https://azlibrary.gov/about/website-policies",
+      "https://www.azleg.gov/ars/39/00121-03.htm"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "AR",
+    "state": "Arkansas",
+    "status": "unclear",
+    "summary": "No statute or case directly settles copyright in Arkansas state works. Harvard notes that an Arkansas FOIA case (Ragland v. Yeargan) reasons much like the Florida and California courts that treat records as public domain, and the AG's FOIA handbook says nothing in the FOIA restricts later use of records. However, the state does put its copyright on the Arkansas Code of 1987 Annotated. The law leans toward public domain but is not settled, so check each work.",
+    "key_law": "Arkansas FOIA (Ark. Code § 25-19-101 et seq.); Ragland v. Yeargan, 288 Ark. 81 (1986); Ark. Op. Att'y Gen. No. 96-229; Ark. Code § 1-2-303 (Code Revision Commission; official Code carries state copyright)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/arkansas/",
+      "https://media.ark.org/ag/2024-FOIA-Handbook-21st-Edition-ver4-SINGLES.pdf",
+      "https://law.justia.com/codes/arkansas/title-1/chapter-2/subchapter-3/section-1-2-303/"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "CA",
+    "state": "California",
+    "status": "public_domain",
+    "summary": "Under County of Santa Clara v. Superior Court (2009), the state and entities that get their power from it cannot enforce copyright in records covered by the Public Records Act unless a specific statute authorizes it. Most state agency works are therefore free to reuse. Watch for the narrow statutory exceptions and for material made by contractors or other third parties.",
+    "key_law": "County of Santa Clara v. Superior Court, 170 Cal. App. 4th 1301 (2009); California Public Records Act",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/california/",
+      "https://en.wikipedia.org/wiki/Copyright_status_of_works_by_subnational_governments_of_the_United_States"
+    ],
+    "confidence": "high",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "CO",
+    "state": "Colorado",
+    "status": "claims_copyright",
+    "summary": "Colorado law expressly authorizes the state and its agencies to obtain and enforce copyright in public records. That authority cannot restrict public access or fair use, and it does not cover mere lists or compilations. Agencies do use it; the Secretary of State, for example, says some publications may not be reproduced without written permission.",
+    "key_law": "C.R.S. § 24-72-203(4) (Colorado Open Records Act)",
+    "sources": [
+      "https://law.justia.com/codes/colorado/title-24/public/article-72/part-2/section-24-72-203/",
+      "https://www.coloradosos.gov/pubs/info_center/terms.html",
+      "https://copyright.lib.harvard.edu/states/colorado/"
+    ],
+    "confidence": "high",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "CT",
+    "state": "Connecticut",
+    "status": "unclear",
+    "summary": "No Connecticut statute or case addresses whether the state holds copyright in its own works. Statutes call records 'property of the state', which Harvard says does not settle copyright. The State Library says documents and images on its site are its property, and some agencies (e.g. Public Health) require permission for commercial reproduction. It leans toward copyrighted, so check each work.",
+    "key_law": "Conn. Gen. Stat. § 4d-34 (records 'property of the state'); § 1-200 et seq. (FOIA); § 3-106a (state seal and arms need permission)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/connecticut/",
+      "https://portal.ct.gov/Policies/Disclaimer",
+      "https://portal.ct.gov/dph/communications/disclaimer/disclaimer",
+      "https://portal.ct.gov/csl/about/csl-policies/intellectual-property-policy"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "DE",
+    "state": "Delaware",
+    "status": "claims_copyright",
+    "summary": "The State of Delaware's website policy reserves all rights, including copyright, in information on state websites, and says posting material does not give up those rights. Permission must be requested from the relevant state administrator. No statute on the question was found, so this rests on the state's stated policy.",
+    "key_law": "State of Delaware website copyright policy; 29 Del. C. § 10001 et seq. (FOIA, access only)",
+    "sources": [
+      "https://delaware.gov/djf/legal/copyright.php",
+      "https://copyright.lib.harvard.edu/states/delaware/"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "FL",
+    "state": "Florida",
+    "status": "public_domain",
+    "summary": "Florida's constitution and public records law bar the state and its agencies from claiming copyright in public records unless the legislature specifically authorizes it (Microdecisions v. Skinner, 2004). Most state agency works are free to reuse. The exceptions are items covered by specific statutes; copyrights the state does hold are vested in the Department of State (Fla. Stat. 286.021/286.031).",
+    "key_law": "Fla. Const. art. I, § 24; Fla. Stat. ch. 119; Microdecisions, Inc. v. Skinner, 889 So. 2d 871 (Fla. 2d DCA 2004); Fla. Stat. §§ 286.021, 286.031 (state-held copyrights where authorized)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/florida/",
+      "https://en.wikipedia.org/wiki/Copyright_status_of_works_by_the_government_of_Florida",
+      "https://www.flsenate.gov/Laws/Statutes/2025/0286.021",
+      "https://www.myfloridalegal.com/ag-opinions/copyrights-trademarks"
+    ],
+    "confidence": "high",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "GA",
+    "state": "Georgia",
+    "status": "unclear",
+    "summary": "No general Georgia rule on copyright in agency publications was found. The state has asserted copyright in specific items: court reports by statute, and historically the code annotations (Harrison Co., 1979). Georgia v. Public.Resource.Org (2020) only put the official code annotations (and similar legislative and judicial works) in the public domain; it does not cover agency handbooks or reports. Treat agency works as possibly copyrighted.",
+    "key_law": "O.C.G.A. § 50-18-34 (court reports copyrighted, copyright belongs to state); Harrison Co. v. Code Revision Commission, 244 Ga. 325 (1979); Georgia v. Public.Resource.Org, Inc. (U.S. 2020)",
+    "sources": [
+      "https://law.justia.com/codes/georgia/title-50/chapter-18/article-2/section-50-18-34/",
+      "https://www.supremecourt.gov/opinions/19pdf/18-1150_7m58.pdf",
+      "https://en.wikipedia.org/wiki/Georgia_v._Public.Resource.Org,_Inc.",
+      "https://copyright.lib.harvard.edu/states/georgia/"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "HI",
+    "state": "Hawaii",
+    "status": "claims_copyright",
+    "summary": "No Hawaii statute addresses the question directly, but several assume state works can be copyrighted: one refers to agencies' existing authority to copyright software, and the procurement code counts copyrights as state property. The State of Hawaii web terms of use carry a state copyright notice and prohibit commercial use of site content. Get permission for commercial republication.",
+    "key_law": "HRS § 206M-34 (authority of state agencies to license or copyright software); HRS ch. 103D (copyrights within state 'property', per Harvard); HRS ch. 92F (UIPA, access only)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/hawaii/",
+      "https://law.justia.com/codes/hawaii/2011/division1/title13/chapter206m/206m-34",
+      "https://ets.hawaii.gov/soh-terms-of-use/"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "ID",
+    "state": "Idaho",
+    "status": "unclear",
+    "summary": "Idaho law calls public records the 'property of the citizens of the state', but no general rule on copyright in agency works was found. The state claims copyright in the Idaho Code compilation and charges a royalty for commercial reproduction of it (Idaho Code 73-210), and the State Archives says its items 'may' be copyrighted. Check each work.",
+    "key_law": "Idaho Code § 74-121(1) (records property of citizens); Idaho Code § 73-210 (state copyright in Idaho Code; commercial royalty)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/idaho/",
+      "https://legislature.idaho.gov/statutesrules/idstat/Title73/T73CH2/SECT73-210/"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "IL",
+    "state": "Illinois",
+    "status": "mixed",
+    "summary": "Illinois has an unusually large number of statutes: some let particular agencies hold and license copyrights, others declare particular state documents public domain (e.g. the Illinois Compiled Statutes). An AG opinion and a federal court both accept that the state can hold copyright. Assume an agency publication is copyrighted unless a statute or notice makes it public domain.",
+    "key_law": "1976 Ill. Att'y Gen. Op. S-1070; State Records Act, 5 ILCS 160 (records 'property of the State'); multiple agency-specific copyright and public-domain statutes (per Harvard)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/illinois/"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "IN",
+    "state": "Indiana",
+    "status": "claims_copyright",
+    "summary": "The IN.gov portal terms of use give only a limited personal-use license for content and documents from state sites. They do not allow republication, distribution, sale or derivative works, except as the Access to Public Records Act or other law allows. No statute or court decision was found, so this rests on the state's stated terms. Get permission to republish.",
+    "key_law": "IN.gov Terms of Use; Ind. Code § 5-14-3 (Access to Public Records Act; § 5-14-3-8(g) refers to information 'owned by' agencies)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/indiana/",
+      "https://www.in.gov/core/terms_of_use.html"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "IA",
+    "state": "Iowa",
+    "status": "unclear",
+    "summary": "Iowa law expressly lets government bodies hold copyright only in their data processing software (Iowa Code 22.3A). No general rule for other publications was found. Some agencies, such as the State Historical Society, require written permission for publication. It leans toward copyrighted, so check each work.",
+    "key_law": "Iowa Code § 22.3A (copyright in government software); Iowa Code ch. 22 (Open Records); Iowa Code § 305.13 (records state property)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/iowa/",
+      "https://www.legis.iowa.gov/docs/code/22.3A.pdf"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "KS",
+    "state": "Kansas",
+    "status": "claims_copyright",
+    "summary": "Kansas law assumes public agencies can hold copyrights: the Open Records Act distinguishes material copyrighted by persons other than the agency, and court reports are copyrighted for the state. An agency's own copyright does not block access under the Open Records Act, but it can limit republication. Get permission unless the work says otherwise.",
+    "key_law": "K.S.A. 45-219 (KORA; agency-held copyright implied); K.S.A. 20-206 (copyright of court reports for the state)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/kansas/",
+      "https://ksrevisor.gov/statutes/chapters/ch45/045_002_0019.html",
+      "https://ksrevisor.gov/statutes/chapters/ch20/020_002_0006.html"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "KY",
+    "state": "Kentucky",
+    "status": "claims_copyright",
+    "summary": "Kentucky statutes presume the Commonwealth can hold copyright: KRS 7.500(7) says putting legislative material online does not give up the Commonwealth's copyright. Agencies claim it in practice; the Department of Education, for example, says its taxpayer-funded publications are copyrighted. Get permission to republish.",
+    "key_law": "KRS § 7.500(7); 1979 Ky. Op. Att'y Gen. (noting the issue unresolved); KRS § 61.870 et seq. (Open Records Act)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/kentucky/",
+      "https://www.education.ky.gov/pages/copyright.aspx"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "LA",
+    "state": "Louisiana",
+    "status": "claims_copyright",
+    "summary": "Several Louisiana AG opinions say state and local bodies can hold copyrights (e.g. Op. 01-82, on an assessor's computer code). The Louisiana.gov web policy lets anyone view, copy or distribute page content for personal or informational use if it is not modified; that is narrower than a public-domain dedication. Commercial or modified republication needs permission.",
+    "key_law": "La. Att'y Gen. Op. No. 01-82 (2002) and other AG opinions; Louisiana.gov website use policy",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/louisiana/"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "ME",
+    "state": "Maine",
+    "status": "unclear",
+    "summary": "No general Maine rule on copyright in agency works was found. The state reserves copyright in its statutory text; separately, the Maine State Library has released many digitized state publications in HathiTrust under CC0 (public domain dedication) with agency permission. A work marked CC0 or public domain in HathiTrust is free to reuse; otherwise check with the agency.",
+    "key_law": "1 M.R.S. § 501-A (deposit of agency publications); Maine Revised Statutes copyright reservation on statutory text",
+    "sources": [
+      "http://stategov.freegovinfo.info/archives/221",
+      "https://www.maine.gov/portal/policies/photo_use_policy.html",
+      "https://copyright.lib.harvard.edu/states/maine/"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "MD",
+    "state": "Maryland",
+    "status": "claims_copyright",
+    "summary": "Maryland's state website policies prohibit commercial use of content without the State's prior written permission. Some agencies, such as the Department of Commerce, allow only noncommercial informational use with the copyright notice kept. No statute or case was found, so this rests on the state's stated policies. Commercial republication needs permission.",
+    "key_law": "Maryland.gov Acceptable Use Policy; Maryland Public Information Act (access only)",
+    "sources": [
+      "https://www.maryland.gov/pages/aup_linking.aspx",
+      "https://copyright.lib.harvard.edu/states/maryland/"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "MA",
+    "state": "Massachusetts",
+    "status": "mixed",
+    "summary": "The Secretary of the Commonwealth says records created by Massachusetts government are not copyrighted and are available for public use. The Mass.gov terms say most public records on Commonwealth sites can be copied and used for any purpose, apart from third-party material. Some agencies, such as the Health Policy Commission, do claim copyright and forbid copying beyond fair use. Most state works are reusable, but check for an agency-specific claim.",
+    "key_law": "Secretary of the Commonwealth statement; Mass.gov Terms of Use; G.L. c. 66 (Public Records Law)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/massachusetts/",
+      "https://www.mass.gov/massgov-terms-of-use",
+      "https://masshpc.gov/website-policy"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "MI",
+    "state": "Michigan",
+    "status": "claims_copyright",
+    "summary": "Michigan law authorizes the State Administrative Board to copyright literary, educational, artistic or intellectual works in the state's name and license them, and the AG has confirmed the state can hold copyrights. Judicial opinions are not copyrightable. Get permission to republish agency works unless a work says otherwise.",
+    "key_law": "MCL § 17.401; Michigan AG opinions; Michigan FOIA (copyright exemption)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/michigan/"
+    ],
+    "confidence": "high",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "MN",
+    "state": "Minnesota",
+    "status": "mixed",
+    "summary": "The mn.gov portal says 'state agency authored documents are in the public domain' but adds that copyright and access restrictions apply. A 1995 AG opinion says the state and its agencies can hold copyright and may restrict later use of disclosed data (the case involved DNR maps), though not access to it, and a statute lets agencies enforce copyright in their software. Many works are likely free, but check for an agency's copyright notice.",
+    "key_law": "Minn. Stat. § 13.03 subd. 5 (copyright in government software); Minn. Op. Att'y Gen. 852 (1995); Minnesota Government Data Practices Act",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/minnesota/",
+      "https://mn.gov/admin/data-practices/data/types/copyright/government-owned/",
+      "https://mn.gov/portal/about-minnesota/about-mn-gov.jsp"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "MS",
+    "state": "Mississippi",
+    "status": "claims_copyright",
+    "summary": "Mississippi AG opinions assume state documents can be copyrighted; a 1991 opinion held the State Highway Department may own copyrights. The state claims copyright in its code and annotations by statute. The Ethics Commission says copyrighted records must still be disclosed, but later use may be restricted. Get permission to republish.",
+    "key_law": "Miss. Code § 1-1-9 (code copyrighted by state); 1991 Miss. Op. Att'y Gen. (State Highway Department copyrights); Mississippi Public Records Act",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/mississippi/",
+      "https://law.justia.com/codes/mississippi/title-1/chapter-1/in-general/section-1-1-9/"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "MO",
+    "state": "Missouri",
+    "status": "claims_copyright",
+    "summary": "The Missouri State Library makes state government documents available for fair use only and says they may be protected by copyright; Harvard reads this as treating state documents as copyrighted. Statutes call public records the 'property of the state'. No statute or case squarely decides it. Get permission from the publishing agency for anything beyond fair use.",
+    "key_law": "RSMo § 109.270 (records property of the state); Missouri State Library usage policy",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/missouri/"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "MT",
+    "state": "Montana",
+    "status": "claims_copyright",
+    "summary": "The Montana State Library's usage guidelines say digital state publications are available for fair use only, may be protected by copyright, and that other uses need permission from the publishing agency. The Montana Code Annotated is treated as state-copyrighted. No statute, AG opinion or case squarely decides it, so this rests on the state's stated practice.",
+    "key_law": "Montana State Library usage guidelines for state publications; MCA Title 22, ch. 1 (state publications depository program)",
+    "sources": [
+      "https://msl.mt.gov/research/state_publications/usage_guidelines",
+      "https://copyright.lib.harvard.edu/states/montana/"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "NE",
+    "state": "Nebraska",
+    "status": "unclear",
+    "summary": "There is no general statute on copyright in agency publications. The state constitution says the state owns the copyright of the 'state reports' (court reports), but Harvard notes this conflicts with U.S. Supreme Court precedent that judicial opinions cannot be copyrighted. The public records law gives access 'except if federal copyright law otherwise provides', which implies some records may be copyrighted, so check each work for a notice.",
+    "key_law": "Neb. Const. art. V, sec. 8 (state reports); Nebraska public records law (federal-copyright exception added in 2000)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/nebraska/"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "NV",
+    "state": "Nevada",
+    "status": "claims_copyright",
+    "summary": "A statute authorizes the State Printer to secure U.S. copyright, in the name of the State of Nevada, in all publications issued by the state. Assume Nevada state publications may be copyrighted unless the work says otherwise.",
+    "key_law": "NRS 344.070 (Copyrights of state publications)",
+    "sources": [
+      "https://law.justia.com/codes/nevada/chapter-344/statute-344-070/",
+      "https://www.leg.state.nv.us/nrs/NRS-344.html"
+    ],
+    "confidence": "high",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "NH",
+    "state": "New Hampshire",
+    "status": "unclear",
+    "summary": "No general rule was found. An open-government-data policy (RSA 21-R:14) makes government-generated data non-copyrightable, but agencies must opt in. Old vital records are declared public domain. Harvard rates New Hampshire 'light orange' (leaning copyrightable, openness score -0.40).",
+    "key_law": "RSA 21-R:14 (voluntary open government data policy); vital records statute (records public domain after 100/50 years); records are 'property of the state' (custody, not copyright)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/new_hampshire/"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "NJ",
+    "state": "New Jersey",
+    "status": "unclear",
+    "summary": "No statute or case on copyright in state works was found. The official NJ.gov legal statement says anyone may view, copy or distribute State information on its pages without obligation unless particular material says otherwise, but it gives no warranty against copyright claims, and state seals and logos are legally restricted. Some content, such as Business.NJ.gov, is licensed CC BY-SA 4.0, and agencies such as DCF keep copyright or license rights in works made under contract.",
+    "key_law": "No statute found; NJ.gov Legal Statement & Disclaimers (web policy); DCF contract policy P8.13-2007 on copyrights",
+    "sources": [
+      "https://www.nj.gov/nj/facts/legal.shtml",
+      "https://business.nj.gov/license-and-copyright-notice",
+      "https://www.nj.gov/dcf/documents/contract/manuals/CPIM_p8_copyrights.pdf"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "NM",
+    "state": "New Mexico",
+    "status": "unclear",
+    "summary": "No general rule was found, and Harvard rates New Mexico 'yellow' (unclear, openness score 0.17). Statutes call some records 'property of' agencies, which is not a copyright rule. Agencies can license computerized databases for royalties and with no-copy conditions, and the Compilation Commission licenses the official statute compilation, which carries a copyright notice from the State of New Mexico.",
+    "key_law": "NMSA 14-3-15.1 (database licensing/royalties); NMSA 12-1-3 (Compilation Commission licensing of official compilation)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/new_mexico/",
+      "https://law.justia.com/codes/new-mexico/chapter-14/article-3/section-14-3-15-1/",
+      "https://law.justia.com/codes/new-mexico/chapter-12/article-1/section-12-1-3/",
+      "https://www.srca.nm.gov/wp-content/uploads/attachments/14-3NMSA.pdf"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "NY",
+    "state": "New York",
+    "status": "claims_copyright",
+    "summary": "Federal courts applying New York law have held that the Freedom of Information Law does not remove a government body's copyright, so records must be disclosed but the entity can still restrict redistribution. That ruling involved a county, but its reasoning covers FOIL agencies generally. Bills to waive copyright in FOIL-disclosed records have been introduced repeatedly; this research did not confirm whether any passed.",
+    "key_law": "County of Suffolk v. First American Real Estate Solutions (2d Cir. 2001, No. 00-9011); City of New York v. Geodata Plus, 537 F. Supp. 2d 443 (E.D.N.Y. 2007); FOIL (Public Officers Law art. 6)",
+    "sources": [
+      "https://biotech.law.lsu.edu/cases/IP/copyright/suffolk_v_first_american.htm",
+      "https://www.nysenate.gov/legislation/bills/2019/S3793",
+      "https://copyright.lib.harvard.edu/states/new_york/"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "NC",
+    "state": "North Carolina",
+    "status": "public_domain",
+    "summary": "By statute, public records and public information compiled by state agencies are 'the property of the people'. Public records held by the State Archives are public domain and may be published without permission, and the State Library treats state documents as public domain. Harvard still rates North Carolina 'yellow' (not fully settled, though openness is high at 1.45), so honor any explicit copyright notice.",
+    "key_law": "N.C. Gen. Stat. 132-1(b) (public records are property of the people); State Archives public-domain provision in ch. 121 (Harvard cites 121-2); N.C. Attorney General advisory opinion (the law cannot be copyrighted); former 143B-426.11 (Agency for Public Telecommunications could hold copyrights; agency closed 2012)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/north_carolina/",
+      "https://www.ncleg.gov/enactedlegislation/statutes/html/bysection/chapter_132/gs_132-1.html"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "ND",
+    "state": "North Dakota",
+    "status": "claims_copyright",
+    "summary": "The open records law says disclosing a record does not waive any copyright the public entity holds, and forbids using a copyrighted record without the entity's permission except for fair use. Public entities may also sell and license copyrighted software. Some State Historical Society records carry a 'public records are not subject to copyright' label, so check the individual work.",
+    "key_law": "N.D. Cent. Code 44-04-18(11) (no waiver of public entity's copyright); N.D. Cent. Code ch. 44-04 (licensing of copyrighted software)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/north_dakota/",
+      "https://codes.findlaw.com/nd/title-44-offices-and-officers/nd-cent-code-sect-44-04-18/",
+      "https://ndlegis.gov/cencode/t44c04.pdf",
+      "https://history.nd.gov/archives/rscopypermission.html"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "OH",
+    "state": "Ohio",
+    "status": "unclear",
+    "summary": "No Ohio statute was found that either authorizes or bars state agency copyright. Attorney General guidance deals only with third-party copyrighted material in public records. Harvard rates Ohio 'yellow' (unclear, openness score -0.11).",
+    "key_law": "Ohio Rev. Code 149.43 (Public Records Act); Ohio Att'y Gen. Op. 93-010 (third-party copyrighted blueprints)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/ohio/",
+      "https://www.ohioattorneygeneral.gov/getattachment/fe920632-a02a-4a9c-a9b5-b21ab8a40862/1993-010.aspx"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "OK",
+    "state": "Oklahoma",
+    "status": "claims_copyright",
+    "summary": "The Oklahoma Attorney General has concluded that the state and its agencies, such as the Oklahoma Historical Society, may acquire, own and hold copyrights. The state documents portal makes publications available under educational fair use, which is not a public-domain dedication. Harvard rates Oklahoma 'orange' (openness score -0.82).",
+    "key_law": "Oklahoma Attorney General opinion (1982): state and agencies may hold copyrights; Open Records Act, 51 O.S. 24A.1 et seq.",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/oklahoma/",
+      "https://oklahoma.gov/content/dam/ok/en/libraries/documents/pub-clearinghouse/publications-manual.pdf"
+    ],
+    "confidence": "high",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "OR",
+    "state": "Oregon",
+    "status": "claims_copyright",
+    "summary": "A statute allows the state to hold copyrights (and patents) in data processing programs, information or materials developed by state agencies, and to sell or license them. Each agency must adopt a written policy on the use and ownership of its records, so copyright practice varies by agency. Harvard rates Oregon 'orange'.",
+    "key_law": "ORS 291.042 (copyright/patent of state data processing programs, information or materials); ORS 192.018 (agency records ownership policies)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/oregon/",
+      "https://oregon.public.law/statutes/ors_291.042"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "PA",
+    "state": "Pennsylvania",
+    "status": "claims_copyright",
+    "summary": "The Department of General Services is empowered to copyright, in the Commonwealth's name, publications of any department, board, commission or officer, including the State Reports. The Right-to-Know Law lets agencies decline to copy copyrighted records. Harvard rates Pennsylvania 'red' (presumptively copyrightable).",
+    "key_law": "71 P.S. 636 (Administrative Code of 1929, sec. 2406); Right-to-Know Law, 65 P.S. 67.101 et seq.",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/pennsylvania/",
+      "https://codes.findlaw.com/pa/title-71-ps-state-government/pa-st-sect-71-636/"
+    ],
+    "confidence": "high",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "RI",
+    "state": "Rhode Island",
+    "status": "unclear",
+    "summary": "No statute on copyright in state works was found. The Rhode Island State Archives catalog marks its collections of state publications 'Copyright is in the public domain unless otherwise specified,' which is favorable in practice but is an archives statement, not a statute. A former statutory restriction on commercial use of public records was struck down and repealed.",
+    "key_law": "Access to Public Records Act (1979); Rhode Island Ass'n of Realtors v. Whitehouse (1st Cir. 1999)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/rhode_island/",
+      "https://catalog.sos.ri.gov/repositories/2/resources/722"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "SC",
+    "state": "South Carolina",
+    "status": "claims_copyright",
+    "summary": "The South Carolina Supreme Court held that a public entity must release records under FOIA but may hold copyright and restrict commercial redistribution. The case involved county GIS data, and Harvard rates the state 'red'. The State Library considers state agency documents public domain, but its depository manual says agencies differ in whether they copyright, so check each work.",
+    "key_law": "Seago v. Horry County (S.C. Sup. Ct. 2008); S.C. Code 60-2-10 (state documents depository)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/south_carolina/",
+      "https://law.justia.com/cases/south-carolina/supreme-court/2008/26505.html",
+      "https://dc.statelibrary.sc.gov/server/api/core/bitstreams/80617de6-354f-480a-91af-da2243f9804b/content"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "SD",
+    "state": "South Dakota",
+    "status": "claims_copyright",
+    "summary": "By statute, agencies keep the copyright in their records, even after the records are transferred to the State Archives. Copies under the public records law are provided 'unless federal copyright law otherwise provides'. Harvard rates South Dakota 'red' (openness score -1.53).",
+    "key_law": "S.D. Codified Laws 1-27-14.3; South Dakota public records law (federal-copyright exception)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/south_dakota/"
+    ],
+    "confidence": "high",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "TN",
+    "state": "Tennessee",
+    "status": "claims_copyright",
+    "summary": "The Tennessee Attorney General concluded that the State owns the copyright in photographs taken by state Photographic Services staff and need not register it to own it. This supports the view that the state can and does claim copyright in agency works. No general public-domain rule was found.",
+    "key_law": "Tenn. Att'y Gen. Op. 07-130 (copyright status of state photographs)",
+    "sources": [
+      "https://www.tn.gov/content/dam/tn/attorneygeneral/documents/ops/2007/op07-130.pdf",
+      "https://copyright.lib.harvard.edu/states/tennessee/"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "TX",
+    "state": "Texas",
+    "status": "mixed",
+    "summary": "The Texas State Library and Archives Commission says works it produces on its web properties are not copyright-protected. It says this does not extend to other State of Texas websites or local governments, whose works may be copyrighted. Harvard rates Texas 'yellow' (openness score -0.26), so treat non-TSLAC works as possibly copyrighted.",
+    "key_law": "TSLAC copyright statement (agency policy); no general statute confirmed in this research",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/texas/"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "UT",
+    "state": "Utah",
+    "status": "unclear",
+    "summary": "No verified source was found. The Harvard State Copyright Resource Center page for Utah exists, but its content could not be retrieved. Treat Utah state works as possibly copyrighted until checked.",
+    "key_law": null,
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/utah/"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "VT",
+    "state": "Vermont",
+    "status": "unclear",
+    "summary": "Harvard rates Vermont 'yellow' (unclear), with a relatively high openness score of 1.73 that leans toward public domain. The underlying statutes and opinions were not retrieved, so no firm rule is confirmed.",
+    "key_law": null,
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/vermont/"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "VA",
+    "state": "Virginia",
+    "status": "claims_copyright",
+    "summary": "By statute, copyrightable works that state employees create within the scope of their employment are the Commonwealth's intellectual property. The Secretary of Administration must set policies letting agencies release such works under Creative Commons or Open Source licenses 'as appropriate'. Works are therefore owned by the Commonwealth unless released under such a license (check the work); Harvard rates Virginia 'light green' (openness score 0.88).",
+    "key_law": "Virginia Code provision on Commonwealth ownership of employee-created copyrightable works and Secretary of Administration release policies (cited by Harvard; section number not verified here, likely Va. Code 2.2-2822)",
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/virginia/"
+    ],
+    "confidence": "medium",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "WA",
+    "state": "Washington",
+    "status": "unclear",
+    "summary": "Harvard rates Washington 'yellow' (unclear, openness score 0.26). The underlying statutes and opinions were not retrieved, so no firm rule is confirmed.",
+    "key_law": null,
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/washington/"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "WV",
+    "state": "West Virginia",
+    "status": "unclear",
+    "summary": "No verified source was found. The Harvard State Copyright Resource Center page for West Virginia exists, but its content could not be retrieved. Treat West Virginia state works as possibly copyrighted until checked.",
+    "key_law": null,
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/west_virginia/"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "WI",
+    "state": "Wisconsin",
+    "status": "unclear",
+    "summary": "Harvard rates Wisconsin 'orange' (leaning copyrightable), though its openness score of 0.88 points the other way. The underlying statutes were not retrieved, so no firm rule is confirmed and state works should be treated as possibly copyrighted.",
+    "key_law": null,
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/wisconsin/"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  },
+  {
+    "abbr": "WY",
+    "state": "Wyoming",
+    "status": "unclear",
+    "summary": "No verified source was found. The Harvard State Copyright Resource Center page for Wyoming exists, but its content could not be retrieved. Treat Wyoming state works as possibly copyrighted until checked.",
+    "key_law": null,
+    "sources": [
+      "https://copyright.lib.harvard.edu/states/wyoming/"
+    ],
+    "confidence": "low",
+    "researched": "2026-09"
+  }
+]

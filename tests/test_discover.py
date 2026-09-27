@@ -80,7 +80,8 @@ def test_discover_by_agency_assigns_that_agency(conn, agencies):
 
     assert source.calls[0] == ("beekeeping", "California Department of Water Resources")
     book = db.list_books(conn)[0]
-    assert (book["agency_id"], book["level"], book["rights"]) == ("wd:Q5020016", "state", "check")
+    assert (book["agency_id"], book["level"], book["jurisdiction"]) == ("wd:Q5020016", "state", "California")
+    assert book["rights"] == "likely_public_domain"  # California: public records are free to reuse
 
 
 def test_discover_survives_a_failing_source(conn, agencies):

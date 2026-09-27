@@ -18,7 +18,9 @@ from tests.conftest import FEDERAL_REGISTER, WIKIDATA_CALIFORNIA, FakeHttp
 from tests.test_govweb import REGISTRY_CSV, ROBOTS, SITE, FakeFetcher, html
 
 POLICIES = {
-    "CA": StatePolicy("CA", "California", "public_domain", "Most California records are free to reuse."),
+    "CA": StatePolicy("CA", "California", "public_domain", "Most California records are free to reuse.",
+                      confidence="high"),
+    "NC": StatePolicy("NC", "North Carolina", "public_domain", "Probably free.", confidence="medium"),
     "TX": StatePolicy("TX", "Texas", "claims_copyright", "Texas agencies may hold copyright."),
     "OH": StatePolicy("OH", "Ohio", "unclear", "No clear rule."),
 }
@@ -53,6 +55,7 @@ def test_copyright_state_policies():
     assert assess("state", state="CA").status == "likely_public_domain"
     assert assess("state", state="Texas").status == "likely_copyrighted"
     assert assess("state", state="OH").status == "check"
+    assert assess("state", state="NC").status == "check"  # free, but not well established
     assert assess("state", state="WY").status == "check"  # no policy on file
     assert assess("state", state="CA", names=["UC Cooperative Extension"]).status == "check"
     local = assess("county", state="CA")

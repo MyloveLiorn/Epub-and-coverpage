@@ -178,9 +178,11 @@ def assess(
         if policy is None:
             return Rights(CHECK, f"No copyright policy on file for {state or 'this state'}. Check the item.")
         prefix = f"{policy.state} ({policy.status.replace('_', ' ')}, {policy.confidence} confidence): "
-        status = {"public_domain": LIKELY_PUBLIC_DOMAIN, "claims_copyright": LIKELY_COPYRIGHTED}.get(
-            policy.status, CHECK
-        )
+        if policy.status == "public_domain":
+            # Only well-established rules count as reusable without a closer look.
+            status = LIKELY_PUBLIC_DOMAIN if policy.confidence == "high" else CHECK
+        else:
+            status = LIKELY_COPYRIGHTED if policy.status == "claims_copyright" else CHECK
         return Rights(status, prefix + policy.summary)
     if level in ("county", "city", "special_district", "school_district"):
         policy = state_policy(state)
