@@ -55,6 +55,18 @@ def result_rows(
     return out
 
 
+def dedupe(rows: list[dict]) -> list[dict]:
+    """One row per title per website: sites often link the same book from two addresses."""
+    seen: set[tuple[str, str]] = set()
+    out = []
+    for row in rows:
+        key = (row["website"], " ".join(str(row["title"]).lower().split()))
+        if key not in seen:
+            seen.add(key)
+            out.append(row)
+    return out
+
+
 def as_table(rows: list[dict]) -> list[list[str]]:
     """Header plus rows, every cell made safe for spreadsheets."""
     return [COLUMNS] + [[safe_cell(r[c]) for c in COLUMNS] for r in rows]

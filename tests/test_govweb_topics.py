@@ -273,3 +273,40 @@ def test_cli_state_crawl_puts_publisher_sites_first(army_cli, capsys):
     run(capsys, "crawl", "--level", "state", "--state", "CA", "--no-sitemaps")  # the rest, ca.gov included
     code, out = run(capsys, "crawl", "--level", "state", "--state", "CA", "--no-sitemaps")
     assert (code, out.strip()) == (0, "Nothing to crawl: every chosen site was crawled recently.")
+
+
+def test_generic_titles_are_not_searched_on_amazon(army_cli, capsys, monkeypatch):
+    from govweb.amazon import distinctive_words
+
+    assert distinctive_words("2021 ANNUAL REPORT") == set()
+    assert distinctive_words("Download") == set()
+    assert distinctive_words("Weapon Systems Handbook: 2020-2021") == {"weapon", "system"}
+    army_cli.pages["https://army.mil/news"] = (200, "text/html", html("News", ("/files/r.pdf", "2021 Annual Report")))
+    run(capsys, "crawl", "army.mil", "--no-sitemaps")
+    provider = FakeProvider({})
+    monkeypatch.setattr("govbooks.market.build_provider", lambda name, http, config: provider)
+    run(capsys, "amazon")
+    assert "2021 Annual Report" not in provider.queries
+    run(capsys, "export", "--out", "all.csv")
+    with open("all.csv", newline="") as fh:
+        rows = {r["title"]: r for r in csv.DictReader(fh)}
+    assert rows["2021 Annual Report"]["on_amazon"] == "title too generic to check"
+
+
+def test_generic_link_texts_and_file_names_fall_back_to_the_page_title():
+    from govweb.classify import best_title
+
+    assert best_title("Download »", "https://a.gov/files/Field_Manual_3-05.pdf") == "Field Manual 3 05"
+    assert best_title("Download »", "https://a.gov/ReadLibraryItem.ashx?id=9", "US Government Manual 2026") == (
+        "US Government Manual 2026"
+    )
+    assert best_title("Download", "https://a.gov/get?id=77") == "get"  # nothing better known
+
+
+def test_one_row_per_title_per_website():
+    from govweb.export import dedupe
+
+    rows = [{"website": "txcourts.gov", "title": "Emergency Preparedness Guide"},
+            {"website": "txcourts.gov", "title": "Emergency  preparedness guide"},
+            {"website": "texas.gov", "title": "Emergency Preparedness Guide"}]  # fmt: skip
+    assert [r["website"] for r in dedupe(rows)] == ["txcourts.gov", "texas.gov"]

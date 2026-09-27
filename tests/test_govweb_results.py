@@ -44,7 +44,11 @@ def conn(monkeypatch):
 
 def test_amazon_check_and_results_table(conn):
     provider = FakeProvider({
-        "Complete Guide to Home Canning": [Listing("0306406152", "Complete Guide to Home Canning (Reprint)")],
+        "Complete Guide to Home Canning": [
+            Listing("0306406152", "Complete Guide to Home Canning (Reprint)", authors=["U.S. Dept. of Agriculture"]),
+            Listing("0486453413", "Complete Guide to Home Canning", authors=["Jane Smith"]),  # another book
+        ],
+        "Beekeeping in the United States": [Listing("B000000001", "Honey Recipes")],
     })  # fmt: skip
     docs = db.documents_to_check(conn, older_than=db.now(), limit=10)
     assert {d["title"] for d in docs} == {"Complete Guide to Home Canning", "Beekeeping in the United States"}

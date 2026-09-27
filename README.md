@@ -187,7 +187,7 @@ The workflow `.github/workflows/find-books.yml` runs `automation/run.sh` every M
    - `govweb.db.gz`: the database the next run continues from
 8. Fills the Google Sheet, if one is set up.
 
-Each results row gives the title, the matching topics, the publisher, level and state, the link, the copyright screening, and whether it's on Amazon (`yes`, `no`, `not found` or `not checked`) with a link.
+Each results row gives the title, the matching topics, the publisher, level and state, the link, the copyright screening, and whether it's on Amazon (`yes`, `no`, `not found`, `not checked`, or `title too generic to check` for titles such as "2021 Annual Report") with a link. A title of fewer than four distinctive words only counts as found when the Amazon listing also names the publisher, since same-title books by others are common. The same book linked twice from one website is listed once.
 
 **Start a run by hand:** open the repo on GitHub, then **Actions** → **Find government books** → **Run workflow**. For that run only, you can add more sites to search in depth (for example `navy.mil nps.gov`), choose the states to search (for example `CA TX`), and set how many sites to crawl.
 

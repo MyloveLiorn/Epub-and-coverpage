@@ -158,6 +158,8 @@ class _Crawl:
         self.fetches = 0
         self.counter = itertools.count()
         self.patterns: dict[str, list[int]] = {}  # page shape -> [pages fetched, documents they linked to]
+        # Link text and linking page's title of queued pages, for those that turn out to be documents.
+        self.anchors: dict[str, tuple[str, str]] = {}
         self.phrases = topic_phrases(limits.topic_keywords)
 
     def priority(self, url: str, text: str) -> int:
@@ -169,12 +171,12 @@ class _Crawl:
         if existing is None or (existing.title == title_from_url(url) and title != existing.title):
             self.result.documents[url] = FoundDocument(url, title, kind, found_on, via)
 
-    def add_link(self, url: str, text: str, depth: int, found_on: str, via: str) -> None:
+    def add_link(self, url: str, text: str, depth: int, found_on: str, via: str, context: str = "") -> None:
         if not any(same_site(url, d) for d in self.domains):
             return
         kind = document_type(url)
         if kind:
-            self.add_document(url, best_title(text, url), kind, found_on, via)
+            self.add_document(url, best_title(text, url, context), kind, found_on, via)
             return
         host = _bare(_host(url))
         if host not in self.hosts:
@@ -184,6 +186,7 @@ class _Crawl:
         if url in self.seen or depth > self.limits.max_depth or path.endswith(SKIP_EXTENSIONS):
             return
         self.seen.add(url)
+        self.anchors[url] = (text, context)
         score = self.priority(url, text)
         # Most promising first; query-string pages (calendars, searches) last among equals.
         penalty = 1 if urlsplit(url).query else 0
@@ -223,7 +226,8 @@ class _Crawl:
         fetched = fetched or self.fetcher.get(url, html_only=True)
         kind = DOCUMENT_CONTENT_TYPES.get(fetched.content_type)
         if kind:  # a document served from a URL without a file extension
-            self.add_document(url, title_from_url(url), kind, url, via)
+            text, context = self.anchors.get(url, ("", ""))
+            self.add_document(url, best_title(text, url, context), kind, url, via)
             stats[1] += 1
             return
         page = None
@@ -234,7 +238,7 @@ class _Crawl:
         )
         if page and not page.nofollow:
             for link in page.links:
-                self.add_link(link.url, link.text, depth + 1, url, "link")
+                self.add_link(link.url, link.text, depth + 1, url, "link", page.title)
         stats[1] += len(self.result.documents) - documents_before
 
     def run(self) -> SiteResult:

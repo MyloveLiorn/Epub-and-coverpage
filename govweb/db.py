@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from govweb.classify import book_score, clean_title, title_from_url
+from govweb.classify import book_score, clean_title, is_generic_title, meaningful_file_name, title_from_url
 from govweb.crawl import SiteResult
 from govweb.registry import Site
 
@@ -120,7 +120,9 @@ MIGRATIONS = {
 
 # Changes to stored data that go with a code change, tracked in SQLite's user_version.
 # 1: document titles cleaned (HTML entities, text said twice, trailing dots).
-DATA_VERSION = 1
+# 2: "Download »"-style titles replaced by the file name; Amazon matches re-checked with the
+#    stricter rules for short titles.
+DATA_VERSION = 2
 
 
 def now() -> str:
@@ -147,6 +149,15 @@ def _upgrade_data(conn: sqlite3.Connection) -> None:
             "UPDATE documents SET title = ?, book_score = ? WHERE url = ?",
             [(title, book_score(title, url), url) for (title, url), r in zip(cleaned, rows) if title != r["title"]],
         )
+    if version < 2:
+        rows = conn.execute("SELECT url, title FROM documents").fetchall()
+        renamed = [(title_from_url(r["url"]), r["url"]) for r in rows
+                   if is_generic_title(r["title"]) and meaningful_file_name(r["url"])]  # fmt: skip
+        conn.executemany(
+            "UPDATE documents SET title = ?, book_score = ? WHERE url = ?",
+            [(title, book_score(title, url), url) for title, url in renamed],
+        )
+        conn.execute("DELETE FROM amazon_checks WHERE matching > 0")
     if version < DATA_VERSION:
         conn.execute(f"PRAGMA user_version = {DATA_VERSION}")
         conn.commit()
@@ -434,7 +445,8 @@ def documents_to_check(conn: sqlite3.Connection, older_than: str, limit: int = -
     """Book-like documents never checked on Amazon, or last checked before ``older_than``; newest first."""
     return conn.execute(
         """
-        SELECT d.* FROM documents d LEFT JOIN amazon_checks a ON a.url = d.url
+        SELECT d.*, s.organization, s.suborganization
+        FROM documents d JOIN sites s ON s.domain = d.domain LEFT JOIN amazon_checks a ON a.url = d.url
         WHERE d.book_score > 0 AND (a.url IS NULL OR a.checked_at < ?)
         ORDER BY d.first_seen DESC, d.book_score DESC LIMIT ?
         """,

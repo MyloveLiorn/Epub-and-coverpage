@@ -22,7 +22,7 @@ from govweb.agencies import fetch_directory, guess_owner, import_agencies, remov
 from govweb.amazon import check_documents
 from govweb.classify import host_hint_score, topic_phrases
 from govweb.crawl import CrawlLimits, crawl_site
-from govweb.export import result_rows, write_csv, write_markdown
+from govweb.export import dedupe, result_rows, write_csv, write_markdown
 from govweb.fetch import USER_AGENT, Fetcher
 from govweb.registry import LEVEL_NAMES, REGISTRY_URL, parse_registry
 from govweb.tree import build_tree, render, to_dict
@@ -488,7 +488,7 @@ def cmd_export(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     rows = db.export_rows(
         conn, books_only=not args.all_documents, since=_since(args.days) if args.days else None, new_only=args.new_only
     )
-    results = result_rows(rows, topics=topic_matchers(args.config))
+    results = dedupe(result_rows(rows, topics=topic_matchers(args.config)))
     if args.reusable:
         results = [r for r in results if r["rights"] in copyright_policy.REUSABLE]
     if args.topics_only:

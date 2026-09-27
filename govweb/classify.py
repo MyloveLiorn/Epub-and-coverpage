@@ -18,9 +18,16 @@ PUBLICATION_HINTS = [
     "resources", "research", "fact sheets", "factsheets", "brochures", "series",
 ]  # fmt: skip
 
-# Link texts that say nothing about the document itself.
+# Link texts that say nothing about the document itself (compared on their words only, so
+# "Download »" counts too).
 GENERIC_LINK_TEXT = {"", "pdf", "download", "download pdf", "here", "click here", "view", "view pdf", "link",
-                     "read more", "more", "open", "full text", "epub", "document", "file"}  # fmt: skip
+                     "read more", "more", "open", "full text", "epub", "document", "file", "download now",
+                     "download file", "download document", "download report", "click here to download", "read",
+                     "learn more", "full report", "report", "access", "details", "view document", "view report"}  # fmt: skip
+# File names that say nothing either: /ReadLibraryItem.ashx?id=12, /download.aspx?file=9, /get?id=77
+GENERIC_FILE_NAMES = {"readlibraryitem", "download", "downloads", "file", "files", "get", "getfile", "view",
+                      "viewdocument", "document", "documents", "showdocument", "attachment", "index", "default",
+                      "item", "fetch", "content", "resource", "blob", "handler", "pdf"}  # fmt: skip
 
 _WORDS = re.compile(r"[a-z0-9]+")
 _HINT_PHRASES = [tuple(h.replace("-", " ").split()) for h in PUBLICATION_HINTS]
@@ -93,10 +100,24 @@ def clean_title(text: str) -> str:
     return text.strip(" -|:._")
 
 
-def best_title(link_text: str, url: str) -> str:
+def is_generic_title(title: str) -> bool:
+    return " ".join(_WORDS.findall(title.lower())) in GENERIC_LINK_TEXT
+
+
+def meaningful_file_name(url: str) -> bool:
+    """False for file names like "ReadLibraryItem", "download" or "3f9a2c7e11"."""
+    words = [w for w in _words(title_from_url(url)) if not re.fullmatch(r"\d+|[0-9a-f]{8,}", w)]
+    return bool(words) and "".join(words) not in GENERIC_FILE_NAMES
+
+
+def best_title(link_text: str, url: str, context: str = "") -> str:
+    """The link text, or the file name when the text says nothing ("Download"), or ``context`` (the
+    title of the page linking to it) when the file name says nothing either."""
     text = clean_title(link_text)
     cleaned = re.sub(r"\(?\b(pdf|epub|mobi)\b[^)]*\)?", "", text, flags=re.IGNORECASE).strip(" -|:")
-    if cleaned.lower() in GENERIC_LINK_TEXT or len(cleaned) < 4:
+    if is_generic_title(cleaned) or len(cleaned) < 4:
+        if not meaningful_file_name(url) and context.strip():
+            return clean_title(context)[:300]
         return title_from_url(url)
     return cleaned[:300]
 

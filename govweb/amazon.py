@@ -14,7 +14,33 @@ from urllib.parse import urlencode
 from govbooks.http import HttpError
 from govbooks.market import MarketProvider, ProviderError, search_query
 from govbooks.market.base import evaluate
+from govbooks.models import Listing
+from govbooks.text import main_title, title_tokens
 from govweb import db
+
+# Words that don't tell one book from another: a title made only of these ("2021 Annual Report",
+# "Download") matches unrelated books on Amazon.
+GENERIC_TITLE_WORDS = {
+    "report", "annual", "guide", "handbook", "manual", "download", "book", "document", "file", "pdf", "final",
+    "draft", "version", "update", "updated", "new", "all", "about", "overview", "introduction", "summary",
+    "information", "info", "resource", "fact", "sheet", "plan", "program", "page", "form", "volume", "part",
+    "edition", "revised", "public", "quick", "reference", "best", "practice", "tip", "general",
+}  # fmt: skip
+# Words in agency names that don't identify the agency.
+OWNER_NOISE = {"department", "office", "united", "state", "government", "agency", "bureau", "division",
+               "administration", "commission", "board", "national", "federal", "public", "service", "council"}  # fmt: skip
+SKIPPED = "skipped"  # provider name recorded for titles too generic to search
+
+
+def distinctive_words(title: str) -> set[str]:
+    return {w for w in title_tokens(main_title(title)) if w not in GENERIC_TITLE_WORDS and not w.isdigit()}
+
+
+def _by_owner(listings: list[Listing], doc: sqlite3.Row) -> list[Listing]:
+    """Listings whose author or title names the document's publisher (for short titles, a
+    same-title book by someone else is likelier than a reprint)."""
+    owner = title_tokens(f"{doc['organization'] or ''} {doc['suborganization'] or ''}") - OWNER_NOISE
+    return [item for item in listings if owner & title_tokens(f"{' '.join(item.authors)} {item.title}")]
 
 
 def check_documents(
@@ -27,7 +53,10 @@ def check_documents(
     checked = found = 0
     for doc in docs:
         query = search_query(doc["title"])
-        if len(query) < 4:  # nothing meaningful to search for
+        words = distinctive_words(doc["title"])
+        if len(words) < 2:  # "Report", "2021 Annual Report": any match would be a coincidence
+            db.save_amazon_check(conn, {"url": doc["url"], "checked_at": db.now(), "provider": SKIPPED, "query": "",
+                                        "matching": 0, "asins": [], "best_rank": None, "price": None})  # fmt: skip
             continue
         try:
             listings = provider.search(query, limit=10)
@@ -35,6 +64,8 @@ def check_documents(
             if progress:
                 progress(f"  {query!r}: failed ({exc})")
             continue
+        if len(words) < 4:
+            listings = _by_owner(listings, doc)
         result = evaluate(doc["title"], listings, None, "public_domain", provider.has_sales_rank)
         db.save_amazon_check(
             conn,
@@ -60,6 +91,8 @@ def check_documents(
 def amazon_status(row: sqlite3.Row) -> str:
     if row["amazon_checked_at"] is None:
         return "not checked"
+    if row["amazon_provider"] == SKIPPED:
+        return "title too generic to check"
     if row["amazon_matching"]:
         return "yes"
     # The free catalog check only sees editions with an ISBN; Kindle-only listings can be missed.
