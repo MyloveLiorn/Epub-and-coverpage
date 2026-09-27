@@ -184,3 +184,92 @@ def test_a_site_that_redirects_to_another_mapped_site_is_not_crawled_twice(army_
     assert db.select_documents(conn) == []
     code, out = run(capsys, "crawl", "presidio.gov", "--no-sitemaps")
     assert "presidio.gov: 1 pages (0 publication pages), 1 documents" in out
+
+
+def test_page_families_that_link_to_no_documents_are_given_up():
+    from govweb.crawl import PATTERN_TRIES, page_pattern
+
+    assert page_pattern("https://a.mil/PubForm/Series_Details.aspx?SERIES_ID=15") == "/pubform/series_details.aspx?SERIES_ID"
+    assert page_pattern("https://a.mil/article/286911") == "/article/#"
+    series = [(f"/series?id={i}", f"Series {i}") for i in range(12)]
+    pages = {
+        "https://a.mil/": (200, "text/html", html("Home", *series, ("/pubs/list", "Publications"))),
+        "https://a.mil/pubs/list": (200, "text/html", html("Pubs", ("/files/field-manual.pdf", "Field Manual"))),
+        **{f"https://a.mil/series?id={i}": (200, "text/html", html(f"Series {i}")) for i in range(12)},
+    }
+    fetcher = FakeFetcher(pages)
+    result = crawl_site("a.mil", fetcher, CrawlLimits(use_sitemaps=False))
+    assert sum("/series?id=" in u for u in fetcher.requested) == PATTERN_TRIES
+    assert "https://a.mil/files/field-manual.pdf" in result.documents
+
+
+def test_a_site_stops_at_its_time_limit():
+    result = crawl_site("army.mil", FakeFetcher(ARMY), CrawlLimits(use_sitemaps=False, max_seconds=1e-9))
+    assert [p.url for p in result.pages] == ["https://army.mil/"]
+    assert result.error.startswith("stopped after")
+
+
+def test_titles_are_cleaned():
+    from govweb.classify import best_title
+    from govweb.parse import parse_html
+
+    url = "https://a.mil/x.pdf"
+    assert best_title("K9H2F Handbook 2026 K9H2F Handbook 2026", url) == "K9H2F Handbook 2026"
+    assert best_title("Don&#39;t be a Passive Bystander handbook", url) == "Don't be a Passive Bystander handbook"
+    assert best_title("1935 Government Organization Manual.", url) == "1935 Government Organization Manual"
+    links = parse_html(
+        '<a href="/a.pdf" title="Army.mil Style Guide">Army.mil Style Guide</a>'
+        '<a href="/b.pdf" title="Weapon Systems Handbook 2020">Handbook</a>'
+        '<a href="/c.pdf" title="Download">Bee book</a>',
+        "https://a.mil/",
+    ).links
+    assert [link.text for link in links] == ["Army.mil Style Guide", "Weapon Systems Handbook 2020", "Download Bee book"]
+
+
+def test_an_alias_of_an_unreachable_site_is_crawled(army_cli, capsys):
+    army_cli.pages["https://federalcourts.gov/"] = (301, "text/html", "https://www.uscourts.gov/")
+    army_cli.pages["https://www.uscourts.gov/"] = (200, "text/html", html("Courts", ("/a.pdf", "Jury Handbook")))
+    conn = db.connect("w.db")
+    for host in ("uscourts.gov", "federalcourts.gov"):
+        db.add_site(conn, host, organization="US Courts", level="federal")
+    conn.execute("UPDATE sites SET crawl_status = 'unreachable' WHERE domain = 'uscourts.gov'")
+    conn.commit()
+    code, out = run(capsys, "crawl", "federalcourts.gov", "--no-sitemaps")
+    assert "federalcourts.gov: 1 pages (0 publication pages), 1 documents" in out
+
+
+def test_cli_crawls_only_the_sub_sites(army_cli, capsys):
+    run(capsys, "crawl", "army.mil", "--no-sitemaps")
+    army_cli.requested.clear()
+    code, out = run(capsys, "crawl", "army.mil", "--subsites-only", "--no-sitemaps", "--max-minutes", "5")
+    assert "Sub-sites: history.army.mil, home.army.mil" in out
+    assert "https://army.mil/" not in army_cli.requested
+
+
+def test_stored_titles_are_cleaned_once(tmp_path):
+    path = tmp_path / "old.db"
+    conn = db.connect(str(path))
+    db.add_site(conn, "army.mil", organization="Army", level="federal")
+    conn.execute(
+        "INSERT INTO documents (url, domain, title, file_type, first_seen, last_seen) "
+        "VALUES ('https://army.mil/k.pdf', 'army.mil', 'K9H2F Handbook K9H2F Handbook', 'pdf', 'x', 'x')"
+    )
+    conn.execute("PRAGMA user_version = 0")
+    conn.commit()
+    conn.close()
+    conn = db.connect(str(path))
+    doc = conn.execute("SELECT title, book_score FROM documents").fetchone()
+    assert (doc["title"], doc["book_score"]) == ("K9H2F Handbook", 2)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.DATA_VERSION
+
+
+def test_cli_state_crawl_puts_publisher_sites_first(army_cli, capsys):
+    conn = db.connect("w.db")
+    for host in ("aaa.ca.gov", "archives.ca.gov", "zzz.ca.gov"):
+        db.add_site(conn, host, organization=host, level="state", state="CA")
+        army_cli.pages[f"https://{host}/"] = (200, "text/html", html(host))
+    code, out = run(capsys, "crawl", "--level", "state", "--state", "CA", "--limit", "1", "--no-sitemaps")
+    assert code == 0 and "archives.ca.gov" in out and "aaa.ca.gov" not in out
+    run(capsys, "crawl", "--level", "state", "--state", "CA", "--no-sitemaps")  # the rest, ca.gov included
+    code, out = run(capsys, "crawl", "--level", "state", "--state", "CA", "--no-sitemaps")
+    assert (code, out.strip()) == (0, "Nothing to crawl: every chosen site was crawled recently.")

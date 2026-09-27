@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from govweb.classify import book_score, title_from_url
+from govweb.classify import book_score, clean_title, title_from_url
 from govweb.crawl import SiteResult
 from govweb.registry import Site
 
@@ -118,6 +118,11 @@ MIGRATIONS = {
 }
 
 
+# Changes to stored data that go with a code change, tracked in SQLite's user_version.
+# 1: document titles cleaned (HTML entities, text said twice, trailing dots).
+DATA_VERSION = 1
+
+
 def now() -> str:
     # Microseconds keep "found after the last run" exact even for back-to-back runs. ISO strings
     # still sort correctly against older second-precision values ("...:00+00:00" < "...:00.5+00:00").
@@ -129,7 +134,22 @@ def connect(path: Path | str) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     _migrate(conn)
     conn.executescript(SCHEMA)
+    _upgrade_data(conn)
     return conn
+
+
+def _upgrade_data(conn: sqlite3.Connection) -> None:
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version < 1:
+        rows = conn.execute("SELECT url, title FROM documents").fetchall()
+        cleaned = [(clean_title(r["title"]) or r["title"], r["url"]) for r in rows]
+        conn.executemany(
+            "UPDATE documents SET title = ?, book_score = ? WHERE url = ?",
+            [(title, book_score(title, url), url) for (title, url), r in zip(cleaned, rows) if title != r["title"]],
+        )
+    if version < DATA_VERSION:
+        conn.execute(f"PRAGMA user_version = {DATA_VERSION}")
+        conn.commit()
 
 
 def _migrate(conn: sqlite3.Connection) -> None:

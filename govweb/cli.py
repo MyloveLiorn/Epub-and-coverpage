@@ -168,9 +168,13 @@ def run_crawls(conn: sqlite3.Connection, sites: list[sqlite3.Row], args: argpars
     limits = CrawlLimits(
         max_pages=args.max_pages, max_depth=args.max_depth, use_sitemaps=not args.no_sitemaps,
         topic_keywords=getattr(args, "crawl_keywords", None) or [],
+        max_seconds=args.max_minutes * 60 if args.max_minutes else None,
     )  # fmt: skip
     say(f"Crawling {len(sites)} site(s), up to {limits.max_pages} pages each, {args.workers} at a time...")
-    mapped = {r[0] for r in conn.execute("SELECT domain FROM sites")}
+    # A site that redirects to one of these is an alias; one that redirects to a site that
+    # couldn't be reached directly is still crawled, through the alias.
+    mapped = {r[0] for r in conn.execute("SELECT domain FROM sites WHERE crawl_status IS NULL OR crawl_status IN "
+                                         "('ok', 'alias')")}  # fmt: skip
     new_documents = 0
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {
@@ -197,6 +201,7 @@ def run_crawls(conn: sqlite3.Connection, sites: list[sqlite3.Row], args: argpars
                 f"{len(result.pages)} pages ({publication_pages} publication pages), {len(result.documents)} documents"
                 + (f" ({fresh} new)" if site["crawled_at"] and fresh else "")
                 + (f", {new_subsites} new sub-sites" if new_subsites else "")
+                + (f"; {result.error}" if result.error else "")
                 if result.status == "ok"
                 else f"same website as {urlsplit(result.home_url).netloc}, not crawled twice"
                 if result.status == "alias"
@@ -213,16 +218,17 @@ def cmd_crawl(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
         return 1
     recent = _since(args.skip_recent_days) if args.skip_recent_days else None
     _ensure_sites(conn, args.domains)
-    sites = _selected(args, conn, not_crawled_since=None if args.domains else recent, limit=args.limit,
-                      rotation=True)  # fmt: skip
-    if not sites:
-        say("Nothing to crawl.")
-        return 1
     args.crawl_keywords = _crawl_keywords(args)
+    sites = _by_promise(_selected(args, conn, not_crawled_since=None if args.domains else recent, rotation=True),
+                        args.crawl_keywords)[: args.limit]  # fmt: skip
+    if not sites:  # not an error: everything chosen was crawled recently (--skip-recent-days)
+        say("Nothing to crawl: every chosen site was crawled recently.")
+        return 0
     if args.crawl_keywords:
         say(f"Following links about: {', '.join(args.crawl_keywords)}")
-    run_crawls(conn, sites, args)
-    if args.with_subsites:
+    if not args.subsites_only:
+        run_crawls(conn, sites, args)
+    if args.with_subsites or args.subsites_only:
         subsites = _subsites_to_crawl(conn, [s["domain"] for s in sites], recent, args)
         if subsites:
             say(f"\nSub-sites: {', '.join(s['domain'] for s in subsites)}")
@@ -240,16 +246,26 @@ def _crawl_keywords(args: argparse.Namespace) -> list[str]:
     return list(dict.fromkeys(keywords + keyword_list(args.keywords)))
 
 
+def _by_promise(sites: list[sqlite3.Row], keywords: list[str]) -> list[sqlite3.Row]:
+    """Never-crawled sites first, those whose names suggest publishers (armypubs.army.mil,
+    alabamaarchives.gov) or the searched topics leading; then the sites crawled longest ago."""
+    phrases = topic_phrases(keywords)
+
+    def key(site: sqlite3.Row) -> tuple:
+        if site["crawled_at"]:
+            return (1, 0, site["crawled_at"])
+        return (0, -host_hint_score(site["domain"], phrases), "")
+
+    return sorted(sites, key=key)
+
+
 def _subsites_to_crawl(
     conn: sqlite3.Connection, parents: list[str], recent: str | None, args: argparse.Namespace
 ) -> list[sqlite3.Row]:
-    """The sub-sites of the crawled sites that are due, those whose names suggest publishers
-    (armypubs.army.mil, history.army.mil) or the searched topics first."""
-    phrases = topic_phrases(args.crawl_keywords)
-    subsites = db.select_subsites(conn, parents, not_crawled_since=recent)
-    subsites.sort(key=lambda s: (s["crawled_at"] is not None, -host_hint_score(s["domain"], phrases),
-                                 s["crawled_at"] or ""))  # fmt: skip
-    return subsites[: args.max_subsites]
+    """The sub-sites of the crawled sites that are due, the most promising first."""
+    return _by_promise(db.select_subsites(conn, parents, not_crawled_since=recent), args.crawl_keywords)[
+        : args.max_subsites
+    ]
 
 
 def cmd_add(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
@@ -568,6 +584,7 @@ def _crawl_options(p: argparse.ArgumentParser, max_pages: int = 100) -> None:
     p.add_argument("--no-sitemaps", action="store_true", help="don't read sitemaps")
     p.add_argument("--workers", type=int, default=4, help="sites crawled in parallel (each site one at a time)")
     p.add_argument("--delay", type=float, default=1.0, help="seconds between requests to one host (default 1)")
+    p.add_argument("--max-minutes", type=float, help="stop each site after this many minutes")
 
 
 def _document_filters(p: argparse.ArgumentParser) -> None:
@@ -650,6 +667,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="then crawl the sub-sites found under them (army.mil -> history.army.mil, ...)")
     p.add_argument("--max-subsites", type=int, default=30, help="sub-sites crawled per run (default 30)")
     p.add_argument("--subsite-pages", type=int, help="pages fetched per sub-site (default: --max-pages)")
+    p.add_argument("--subsites-only", action="store_true", help="crawl only the sub-sites of the chosen sites")
     p.set_defaults(func=cmd_crawl)
 
     p = sub.add_parser("docs", help="documents found by crawling")

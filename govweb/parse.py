@@ -34,6 +34,7 @@ class _PageParser(HTMLParser):
         self._in_title = False
         self._href: str | None = None
         self._text: list[str] = []
+        self._title_attr = ""
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
@@ -47,7 +48,8 @@ class _PageParser(HTMLParser):
         elif tag == "a" and attrs.get("href"):
             self._close_link()
             self._href = attrs["href"]
-            self._text = [attrs.get("title") or ""] if attrs.get("title") else []
+            self._text = []
+            self._title_attr = " ".join((attrs.get("title") or "").split())
         elif tag == "img" and self._href is not None and attrs.get("alt"):
             self._text.append(attrs["alt"])
 
@@ -71,13 +73,25 @@ class _PageParser(HTMLParser):
             return
         url = normalize_url(urljoin(self.base_url, href))
         if url:
-            self.page.links.append(Link(url, " ".join(" ".join(self._text).split())))
+            self.page.links.append(Link(url, _link_text(" ".join(" ".join(self._text).split()), self._title_attr)))
         self._text = []
 
     def close(self):
         super().close()
         self._close_link()
         self.page.title = " ".join(self.page.title.split())
+
+
+def _link_text(body: str, title_attr: str) -> str:
+    """The link's text and its title attribute, without saying the same thing twice."""
+    def within(part: str, whole: str) -> bool:  # as whole words
+        return f" {part.lower()} " in f" {whole.lower()} "
+
+    if not title_attr or within(title_attr, body):
+        return body
+    if not body or within(body, title_attr):
+        return title_attr
+    return f"{title_attr} {body}"
 
 
 def parse_html(html: str, base_url: str) -> Page:

@@ -13,7 +13,10 @@ from requests.adapters import HTTPAdapter
 from govbooks.http import CappedRetry
 from govweb import __version__
 
-USER_AGENT = f"govweb/{__version__} (+https://github.com/MyloveLiorn/Epub-and-coverpage)"
+# The usual form for a crawler's user agent (as Googlebot and Bingbot use): it names the crawler
+# and where to read about it. Some sites refuse user agents that don't start with "Mozilla/5.0".
+USER_AGENT = f"Mozilla/5.0 (compatible; govweb/{__version__}; +https://github.com/MyloveLiorn/Epub-and-coverpage)"
+ROBOTS_NAME = "govweb"  # the name robots.txt rules are matched against
 HTML_TYPES = ("text/html", "application/xhtml+xml")
 MAX_CRAWL_DELAY = 10.0
 
@@ -101,11 +104,11 @@ class Fetcher:
                 parser.disallow_all = True
             else:
                 parser.allow_all = True
-            delay = parser.crawl_delay(USER_AGENT)
+            delay = parser.crawl_delay(ROBOTS_NAME)
             if delay:
                 self._delays[parts.netloc] = min(float(delay), MAX_CRAWL_DELAY)
             self._robots[origin] = parser
         return self._robots[origin]
 
     def allowed(self, url: str) -> bool:
-        return self.robots(url).can_fetch(USER_AGENT, url)
+        return self.robots(url).can_fetch(ROBOTS_NAME, url)

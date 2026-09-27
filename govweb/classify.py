@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import re
 from urllib.parse import unquote, urlsplit
 
@@ -58,16 +59,16 @@ def topic_score(url: str, text: str, phrases: list[str]) -> int:
     return sum(contains_phrase(haystack, p) for p in phrases)
 
 
-# Parts of a sub-site's name that suggest it publishes books: armypubs.army.mil,
-# history.army.mil, armyupress.army.mil, nal.usda.gov (National Agricultural Library).
+# Parts of a site's name that suggest it publishes books: armypubs.army.mil, history.army.mil,
+# armyupress.army.mil, nal.usda.gov (National Agricultural Library), alabamaarchives.gov.
 PUBLISHER_HOST_HINTS = ("pub", "histor", "librar", "press", "book", "manual", "doctrine", "museum", "heritage",
-                        "archive", "learn", "universit", "college", "school", "research")  # fmt: skip
-PUBLISHER_HOST_LABELS = {"nal", "nlm", "gpo", "apd"}
+                        "archiv", "learn", "universit", "college", "school", "research", "geolog", "extension")  # fmt: skip
+PUBLISHER_HOST_LABELS = {"nal", "nlm", "gpo", "apd", "tsl"}
 
 
 def host_hint_score(host: str, phrases: list[str] | None = None) -> int:
-    """How strongly a sub-site's name suggests books: publisher words, then topic keywords."""
-    labels = host.lower().removeprefix("www.").split(".")[:-2]  # "armypubs.army.mil" -> ["armypubs"]
+    """How strongly a site's name suggests books: publisher words, then topic keywords."""
+    labels = host.lower().removeprefix("www.").split(".")[:-1]  # "armypubs.army.mil" -> ["armypubs", "army"]
     score = 2 * sum(1 for hint in PUBLISHER_HOST_HINTS if any(hint in label for label in labels))
     score += 2 * sum(1 for label in labels if label in PUBLISHER_HOST_LABELS)
     compact = "".join(labels).replace("-", "")
@@ -81,8 +82,19 @@ def title_from_url(url: str) -> str:
     return " ".join(re.split(r"[\s_\-+.]+", name)).strip()
 
 
+def clean_title(text: str) -> str:
+    """ "K9H2F Handbook 2026 K9H2F Handbook 2026" -> "K9H2F Handbook 2026", "Don&#39;t" -> "Don't",
+    and no trailing dot or separator."""
+    text = " ".join(html.unescape(html.unescape(text)).split())
+    words = text.split()
+    half = len(words) // 2
+    if half and len(words) % 2 == 0 and words[:half] == words[half:]:
+        text = " ".join(words[:half])
+    return text.strip(" -|:._")
+
+
 def best_title(link_text: str, url: str) -> str:
-    text = " ".join(link_text.split())
+    text = clean_title(link_text)
     cleaned = re.sub(r"\(?\b(pdf|epub|mobi)\b[^)]*\)?", "", text, flags=re.IGNORECASE).strip(" -|:")
     if cleaned.lower() in GENERIC_LINK_TEXT or len(cleaned) < 4:
         return title_from_url(url)

@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import heapq
 import itertools
+import re
+import time
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Callable, Protocol
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from govweb.classify import (
     best_title,
@@ -35,6 +37,9 @@ SKIP_EXTENSIONS = (
 DOCUMENT_CONTENT_TYPES = {"application/pdf": "pdf", "application/epub+zip": "epub"}
 # A link that names a searched topic outranks one that only looks like a publication list.
 TOPIC_WEIGHT = 3
+# Pages of one shape (Details.aspx?SERIES_ID=1, =5, ...; /article/123, /article/456) are
+# given this many tries; if none of them links to a document, the rest are skipped.
+PATTERN_TRIES = 5
 
 
 class FetcherLike(Protocol):
@@ -54,6 +59,9 @@ class CrawlLimits:
     # Words or phrases of the searched topics ("beekeeping", "first aid"): links mentioning
     # them are followed first.
     topic_keywords: list[str] = field(default_factory=list)
+    # Stop a site after this long, so one slow site (a long robots.txt crawl delay) can't
+    # hold up the others. None: no limit.
+    max_seconds: float | None = None
 
 
 @dataclass
@@ -90,6 +98,14 @@ class SiteResult:
 
 def _host(url: str) -> str:
     return urlsplit(url).netloc.lower().split(":")[0]
+
+
+def page_pattern(url: str) -> str:
+    """ "/PubForm/Series_Details.aspx?SERIES_ID=15" -> "/PubForm/Series_Details.aspx?SERIES_ID",
+    "/article/286911" -> "/article/#": pages that differ only in an id."""
+    parts = urlsplit(url)
+    keys = sorted({k for k, _ in parse_qsl(parts.query, keep_blank_values=True)})
+    return re.sub(r"\d+", "#", parts.path.lower()) + ("?" + "&".join(keys) if keys else "")
 
 
 def _bare(host: str) -> str:
@@ -141,6 +157,7 @@ class _Crawl:
         self.seen: set[str] = set()
         self.fetches = 0
         self.counter = itertools.count()
+        self.patterns: dict[str, list[int]] = {}  # page shape -> [pages fetched, documents they linked to]
         self.phrases = topic_phrases(limits.topic_keywords)
 
     def priority(self, url: str, text: str) -> int:
@@ -194,12 +211,20 @@ class _Crawl:
                 if document_type(url) or self.priority(url, "") > 0:
                     self.add_link(url, "", 1, sitemap_url, "sitemap")
 
+    def fruitless(self, url: str) -> bool:
+        fetched, documents = self.patterns.get(page_pattern(url), (0, 0))
+        return fetched >= PATTERN_TRIES and documents == 0
+
     def visit(self, url: str, depth: int, via: str, fetched: FetchResult | None = None) -> None:
         self.fetches += 1
+        stats = self.patterns.setdefault(page_pattern(url), [0, 0])
+        stats[0] += 1
+        documents_before = len(self.result.documents)
         fetched = fetched or self.fetcher.get(url, html_only=True)
         kind = DOCUMENT_CONTENT_TYPES.get(fetched.content_type)
         if kind:  # a document served from a URL without a file extension
             self.add_document(url, title_from_url(url), kind, url, via)
+            stats[1] += 1
             return
         page = None
         if fetched.ok and fetched.content_type in HTML_TYPES:
@@ -210,8 +235,10 @@ class _Crawl:
         if page and not page.nofollow:
             for link in page.links:
                 self.add_link(link.url, link.text, depth + 1, url, "link")
+        stats[1] += len(self.result.documents) - documents_before
 
     def run(self) -> SiteResult:
+        deadline = time.monotonic() + self.limits.max_seconds if self.limits.max_seconds else None
         home_url, home = _find_home(self.result.domain, self.fetcher)
         if not home_url:
             self.result.status = "unreachable"
@@ -240,8 +267,11 @@ class _Crawl:
                 self.seen.add(url)
                 heapq.heappush(self.queue, (-100, 1, next(self.counter), 1, url, "seed"))
         while self.queue and self.fetches < self.limits.max_pages:
+            if deadline and time.monotonic() > deadline:
+                self.result.error = f"stopped after {self.limits.max_seconds / 60:g} minutes"
+                break
             *_, depth, url, via = heapq.heappop(self.queue)
-            if self.fetcher.allowed(url):
+            if not self.fruitless(url) and self.fetcher.allowed(url):
                 self.visit(url, depth, via)
         return self.result
 

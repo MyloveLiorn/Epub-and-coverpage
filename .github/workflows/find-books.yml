@@ -1,8 +1,9 @@
 name: Find government books
 
-# Weekly: map federal and state government websites, search the priority sites (army.mil, ...)
-# and the next batch of other sites for books, check Amazon, and save the results (CSV tables
-# and databases) to the "data" branch. automation/priority-sites.txt lists the priority sites.
+# Weekly: map federal and state government websites, search the priority sites (army.mil, ...),
+# the websites of five states (every state in turn) and the next batch of federal sites for
+# books, check Amazon, and save the results (CSV tables and the database) to the "data" branch.
+# automation/priority-sites.txt lists the priority sites.
 on:
   schedule:
     - cron: "17 6 * * 1" # Mondays 06:17 UTC
@@ -11,11 +12,14 @@ on:
       extra_sites:
         description: More sites to search in depth this run (space-separated, e.g. navy.mil nps.gov)
         default: ""
-      federal_sites:
-        description: Federal sites to crawl this run
-        default: "150"
+      states:
+        description: States whose websites to search this run (e.g. CA TX); empty = the next five in turn
+        default: ""
       state_sites:
-        description: State sites to crawl this run
+        description: Websites searched per state
+        default: "40"
+      federal_sites:
+        description: Other federal sites to crawl this run
         default: "150"
 
 permissions:
@@ -52,8 +56,9 @@ jobs:
       - name: Run
         env:
           EXTRA_SITES: ${{ inputs.extra_sites }}
+          STATES: ${{ inputs.states }}
+          STATE_SITES: ${{ inputs.state_sites || '40' }}
           FEDERAL_SITES: ${{ inputs.federal_sites || '150' }}
-          STATE_SITES: ${{ inputs.state_sites || '150' }}
           GOOGLE_BOOKS_API_KEY: ${{ secrets.GOOGLE_BOOKS_API_KEY }}
           KEEPA_API_KEY: ${{ secrets.KEEPA_API_KEY }}
           AMAZON_CREATORS_CREDENTIAL_ID: ${{ secrets.AMAZON_CREATORS_CREDENTIAL_ID }}

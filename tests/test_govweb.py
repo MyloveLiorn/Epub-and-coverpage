@@ -8,7 +8,7 @@ import pytest
 from govweb import cli, db
 from govweb.classify import best_title, document_type, hint_score, title_from_url
 from govweb.crawl import CrawlLimits, crawl_site
-from govweb.fetch import USER_AGENT, FetchResult
+from govweb.fetch import ROBOTS_NAME, FetchResult
 from govweb.parse import parse_html, parse_sitemap
 from govweb.registry import level_of, parse_registry
 from govweb.tree import build_tree, render
@@ -54,7 +54,7 @@ class FakeFetcher:
         return self._robots[origin]
 
     def allowed(self, url):
-        return self.robots(url).can_fetch(USER_AGENT, url)
+        return self.robots(url).can_fetch(ROBOTS_NAME, url)
 
 
 def html(title, *links):

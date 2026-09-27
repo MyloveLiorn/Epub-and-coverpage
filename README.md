@@ -144,6 +144,8 @@ govweb crawl --level federal --limit 50        # the first 50 federal sites
 govweb crawl --state CA --level state          # California state sites
 govweb crawl https://www.army.mil              # any site
 govweb crawl army.mil --with-subsites --all-topics --max-pages 400   # army.mil in depth, topics first
+govweb crawl army.mil --subsites-only --max-subsites 40               # only the next 40 sub-sites
+govweb crawl --level state --state CA --limit 40 --max-minutes 6      # California's sites, 6 minutes each at most
 govweb docs --topic beekeeping --books-only --reusable
 govweb new --days 7 --books-only               # what appeared on re-crawls this week
 govweb amazon                                  # is each book already on Amazon?
@@ -173,20 +175,21 @@ The workflow `.github/workflows/find-books.yml` runs `automation/run.sh` every M
 
 1. Refreshes the map: the .gov registry and, in the first week of each month, the federal and state agency websites.
 2. Searches the **priority sites** in `automation/priority-sites.txt` in depth (army.mil to start with): up to 400 pages each, then the next 40 of their sub-sites (armypubs.army.mil, history.army.mil, armyupress.army.mil, ...), 120 pages each. The priority sites are searched every week, so new books on them are caught quickly.
-3. Crawls the next 150 federal and 150 state sites not crawled in the last 30 days, so the whole map is covered over a few weeks.
-4. Every crawl follows links about the topics in `automation/govbooks.toml` first.
-5. Checks whether each book is already on Amazon, books on the topics first. Without keys it uses the free check (Open Library editions; each ISBN-10 is also the Amazon product number). It uses Keepa automatically once `KEEPA_API_KEY` is set.
-6. Saves the results to the `data` branch:
+3. Searches **state websites** in depth: five states per run, in turn, so all 50 are covered every 10 weeks. For each state it searches up to 40 of its sites, 150 pages each. Sites never searched come first, and among them those whose names suggest books (library, archives, history, geology, publications).
+4. Crawls the next 150 federal sites not crawled in the last 30 days, so the whole federal map is covered over a few weeks.
+5. Every crawl follows links about the topics in `automation/govbooks.toml` first. Each site has a time limit, and pages of one shape (such as `Details.aspx?ID=1`, `?ID=2`, …) are dropped after five of them link to no documents.
+6. Checks whether each book is already on Amazon, books on the topics first. Without keys it uses the free check (Open Library editions; each ISBN-10 is also the Amazon product number). It uses Keepa automatically once `KEEPA_API_KEY` is set.
+7. Saves the results to the `data` branch:
    - `topic-books.csv`: books on your topics
    - `new-books.csv`: books that appeared on government websites this week
    - `website-books.csv`: every book found on the websites
    - `last-run.md`: the books found by this run, also shown on the run's page in **Actions**
    - `govweb.db.gz`: the database the next run continues from
-7. Fills the Google Sheet, if one is set up.
+8. Fills the Google Sheet, if one is set up.
 
 Each results row gives the title, the matching topics, the publisher, level and state, the link, the copyright screening, and whether it's on Amazon (`yes`, `no`, `not found` or `not checked`) with a link.
 
-**Start a run by hand:** open the repo on GitHub, then **Actions** → **Find government books** → **Run workflow**. You can add more sites to search in depth for that run only (for example `navy.mil nps.gov`), and set how many other sites to crawl.
+**Start a run by hand:** open the repo on GitHub, then **Actions** → **Find government books** → **Run workflow**. For that run only, you can add more sites to search in depth (for example `navy.mil nps.gov`), choose the states to search (for example `CA TX`), and set how many sites to crawl.
 
 **Change the topics:** edit `automation/govbooks.toml`. **Change the priority sites:** edit `automation/priority-sites.txt` (one site per line). Both can be edited in the GitHub website or app.
 
