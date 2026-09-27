@@ -91,6 +91,13 @@ def test_discover_survives_a_failing_source(conn, agencies):
     assert stats.new_books == 1
 
 
+def test_discover_stops_querying_a_source_over_its_quota(conn, agencies):
+    topic = Topic(name="t", keywords=["a", "b", "c", "d", "e"])
+    limited = FakeSource("limited", [], fail=True, status=429)
+    discover(conn, topic, [limited], AgencyIndex(agencies))
+    assert len(limited.calls) == 3
+
+
 def test_discover_stops_querying_an_unreachable_source(conn, agencies):
     topic = Topic(name="t", keywords=["a", "b", "c", "d", "e"])
     offline = FakeSource("offline", [], fail=True, status=None)

@@ -6,7 +6,7 @@ edition found here links straight to its Amazon page for a manual look.
 
 from __future__ import annotations
 
-from govbooks.http import Http
+from govbooks.http import Http, HttpError
 from govbooks.models import Listing
 from govbooks.sources import quote
 from govbooks.sources.google_books import GoogleBooksSource, isbns_of
@@ -22,7 +22,19 @@ class CatalogProvider:
     def __init__(self, http: Http, google_api_key: str | None = None, marketplace: str = "www.amazon.com"):
         self.http = http
         self.google = GoogleBooksSource(http, google_api_key)
+        self.google_blocked = False  # set when Google Books refuses (quota); Open Library carries on
         self.marketplace = marketplace
+
+    def _google(self, q: str, limit: int) -> list[dict]:
+        if self.google_blocked:
+            return []
+        try:
+            return list(self.google.query(q, limit=limit))
+        except HttpError as exc:
+            if exc.status in (401, 403, 429):
+                self.google_blocked = True
+                return []
+            raise
 
     def _listing(self, isbns: list[str], title: str, authors: list[str], price: float | None = None) -> Listing | None:
         asin = next((a for a in (isbn13_to_isbn10(i) for i in isbns) if a), None)
@@ -34,7 +46,7 @@ class CatalogProvider:
 
     def search(self, query: str, limit: int = 10) -> list[Listing]:
         found: dict[str, Listing] = {}
-        for item in self.google.query(f"intitle:{quote(query)}", limit=20):
+        for item in self._google(f"intitle:{quote(query)}", limit=20):
             info = item.get("volumeInfo") or {}
             price = ((item.get("saleInfo") or {}).get("listPrice") or {}).get("amount")
             listing = self._listing(isbns_of(info), info.get("title") or "", list(info.get("authors") or []), price)
@@ -53,7 +65,7 @@ class CatalogProvider:
     def lookup(self, asins: list[str]) -> list[Listing]:
         result = []
         for asin in asins:
-            items = list(self.google.query(f"isbn:{asin}", limit=1))
+            items = self._google(f"isbn:{asin}", limit=1)
             if items:
                 info = items[0].get("volumeInfo") or {}
                 result.append(
