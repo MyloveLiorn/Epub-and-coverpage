@@ -1,4 +1,4 @@
-"""SQLite storage for the .gov site map and what crawling found on each site."""
+"""SQLite storage for the site map, the agency directory, what crawling found, and watches."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from govweb.classify import title_from_url
+from govweb.classify import book_score, title_from_url
 from govweb.crawl import SiteResult
 from govweb.registry import Site
 
@@ -21,10 +21,14 @@ CREATE TABLE IF NOT EXISTS sites (
     suborganization TEXT,
     city TEXT,
     state TEXT,
-    -- Set for sub-sites found by crawling (water.ca.gov under ca.gov); NULL for registry domains.
+    -- Set for sub-sites (water.ca.gov under ca.gov); NULL otherwise.
     parent_domain TEXT,
-    in_registry INTEGER NOT NULL DEFAULT 1,
+    -- registry (the .gov list), subdomain (found under a registry domain), agency (an agency
+    -- directory website outside the registry, e.g. army.mil) or manual (added by hand).
+    source TEXT NOT NULL DEFAULT 'registry',
+    in_registry INTEGER NOT NULL DEFAULT 1,  -- 0 once a registry domain leaves the registry
     synced_at TEXT NOT NULL,
+    first_crawled_at TEXT,
     crawled_at TEXT,
     crawl_status TEXT,
     home_url TEXT,
@@ -54,22 +58,86 @@ CREATE TABLE IF NOT EXISTS documents (
     file_type TEXT NOT NULL,
     found_on TEXT,
     found_via TEXT,
+    book_score INTEGER NOT NULL DEFAULT 0,
     first_seen TEXT NOT NULL,
     last_seen TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS documents_domain ON documents (domain);
+CREATE INDEX IF NOT EXISTS documents_first_seen ON documents (first_seen);
+
+-- Federal (Federal Register) and state (Wikidata) agencies with their websites.
+-- Ids match govbooks' agency ids, so the two tools can be joined later.
+CREATE TABLE IF NOT EXISTS agencies (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    short_name TEXT,
+    level TEXT NOT NULL,
+    state TEXT,
+    parent_id TEXT,
+    website TEXT,
+    host TEXT,
+    synced_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agencies_host ON agencies (host);
+
+-- Saved searches for new books.
+CREATE TABLE IF NOT EXISTS watches (
+    name TEXT PRIMARY KEY,
+    topic TEXT,
+    keywords TEXT,
+    level TEXT,
+    state TEXT,
+    domain TEXT,
+    search TEXT,
+    books_only INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    last_run_at TEXT
+);
 """
+
+# Columns added after the first release, so older databases can be upgraded in place.
+MIGRATIONS = {
+    "sites": {
+        "source": "TEXT NOT NULL DEFAULT 'registry'",
+        "first_crawled_at": "TEXT",
+    },
+    "documents": {"book_score": "INTEGER NOT NULL DEFAULT 0"},
+}
 
 
 def now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    # Microseconds keep "found after the last run" exact even for back-to-back runs. ISO strings
+    # still sort correctly against older second-precision values ("...:00+00:00" < "...:00.5+00:00").
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
 def connect(path: Path | str) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
+    _migrate(conn)
     conn.executescript(SCHEMA)
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, columns in MIGRATIONS.items():
+        existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if not existing:  # a new database; the schema creates everything
+            continue
+        for column, spec in columns.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {spec}")
+                if (table, column) == ("sites", "source"):
+                    conn.execute("UPDATE sites SET source = 'subdomain' WHERE parent_domain IS NOT NULL")
+                if (table, column) == ("sites", "first_crawled_at"):
+                    conn.execute("UPDATE sites SET first_crawled_at = crawled_at")
+                if (table, column) == ("documents", "book_score"):
+                    rows = conn.execute("SELECT url, title FROM documents").fetchall()
+                    conn.executemany(
+                        "UPDATE documents SET book_score = ? WHERE url = ?",
+                        [(book_score(r["title"], r["url"]), r["url"]) for r in rows],
+                    )
+    conn.commit()
 
 
 def sync_sites(conn: sqlite3.Connection, sites: Iterable[Site]) -> tuple[int, int]:
@@ -91,13 +159,17 @@ def sync_sites(conn: sqlite3.Connection, sites: Iterable[Site]) -> tuple[int, in
         """,
         rows,
     )
-    conn.execute("UPDATE sites SET in_registry = 0 WHERE parent_domain IS NULL AND synced_at < ?", (stamp,))
+    conn.execute("UPDATE sites SET in_registry = 0 WHERE source = 'registry' AND synced_at < ?", (stamp,))
     conn.commit()
     return len(rows), len({r[0] for r in rows} - before)
 
 
+def get_site(conn: sqlite3.Connection, domain: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM sites WHERE domain = ?", (domain,)).fetchone()
+
+
 def registered_domain_of(conn: sqlite3.Connection, host: str) -> sqlite3.Row | None:
-    """The registry row a host belongs to: water.ca.gov -> ca.gov."""
+    """The top-level site a host belongs to: water.ca.gov -> ca.gov (itself if it is one)."""
     labels = host.lower().removeprefix("www.").split(".")
     for start in range(len(labels) - 1):
         row = conn.execute(
@@ -106,6 +178,29 @@ def registered_domain_of(conn: sqlite3.Connection, host: str) -> sqlite3.Row | N
         if row:
             return row
     return None
+
+
+def add_site(
+    conn: sqlite3.Connection,
+    domain: str,
+    organization: str,
+    level: str = "other",
+    state: str | None = None,
+    suborganization: str | None = None,
+    source: str = "manual",
+    domain_type: str = "Added by hand",
+) -> bool:
+    """Add a site outside the registry. Returns False if it already exists."""
+    cur = conn.execute(
+        """
+        INSERT OR IGNORE INTO sites (domain, domain_type, level, organization, suborganization, state, source,
+                                     synced_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (domain, domain_type, level, organization, suborganization, state, source, now()),
+    )
+    conn.commit()
+    return cur.rowcount > 0
 
 
 def add_subsites(conn: sqlite3.Connection, parent: sqlite3.Row, hosts: Iterable[str]) -> int:
@@ -120,8 +215,8 @@ def add_subsites(conn: sqlite3.Connection, parent: sqlite3.Row, hosts: Iterable[
     conn.executemany(
         """
         INSERT OR IGNORE INTO sites (domain, domain_type, level, election, organization, suborganization, city,
-                                     state, parent_domain, synced_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     state, parent_domain, source, synced_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'subdomain', ?)
         """,
         rows,
     )
@@ -137,6 +232,7 @@ def select_sites(
     search: str | None = None,
     include_election: bool = False,
     not_crawled_since: str | None = None,
+    crawled_only: bool = False,
     limit: int | None = None,
 ) -> list[sqlite3.Row]:
     where, params = ["in_registry = 1"], []
@@ -157,6 +253,8 @@ def select_sites(
     if not_crawled_since:
         where.append("(crawled_at IS NULL OR crawled_at < ?)")
         params.append(not_crawled_since)
+    if crawled_only:
+        where.append("crawled_at IS NOT NULL")
     sql = f"SELECT * FROM sites WHERE {' AND '.join(where)} ORDER BY level, state, organization, domain"
     if limit:
         sql += " LIMIT ?"
@@ -178,24 +276,26 @@ def store_result(conn: sqlite3.Connection, result: SiteResult) -> int:
     )
     conn.executemany(
         """
-        INSERT INTO documents (url, domain, title, file_type, found_on, found_via, first_seen, last_seen)
-        VALUES (:url, :domain, :title, :file_type, :found_on, :found_via, :stamp, :stamp)
+        INSERT INTO documents (url, domain, title, file_type, found_on, found_via, book_score, first_seen, last_seen)
+        VALUES (:url, :domain, :title, :file_type, :found_on, :found_via, :book_score, :stamp, :stamp)
         ON CONFLICT (url) DO UPDATE SET last_seen = excluded.last_seen,
-            title = CASE WHEN documents.title = :fallback THEN excluded.title ELSE documents.title END
+            title = CASE WHEN documents.title = :fallback THEN excluded.title ELSE documents.title END,
+            book_score = CASE WHEN documents.title = :fallback THEN excluded.book_score ELSE documents.book_score END
         """,
         [
-            {**vars(d), "domain": result.domain, "stamp": stamp, "fallback": title_from_url(d.url)}
+            {**vars(d), "domain": result.domain, "stamp": stamp, "fallback": title_from_url(d.url),
+             "book_score": book_score(d.title, d.url)}
             for d in result.documents.values()
-        ],
+        ],  # fmt: skip
     )
     total_docs = conn.execute("SELECT COUNT(*) FROM documents WHERE domain = ?", (result.domain,)).fetchone()[0]
     conn.execute(
         """
-        UPDATE sites SET crawled_at = ?, crawl_status = ?, home_url = ?, pages_crawled = ?, documents_found = ?,
-                         sitemap_urls = ?, error = ?
+        UPDATE sites SET crawled_at = ?, first_crawled_at = COALESCE(first_crawled_at, ?), crawl_status = ?,
+                         home_url = ?, pages_crawled = ?, documents_found = ?, sitemap_urls = ?, error = ?
         WHERE domain = ?
         """,
-        (stamp, result.status, result.home_url, len(result.pages), total_docs, result.sitemap_urls,
+        (stamp, stamp, result.status, result.home_url, len(result.pages), total_docs, result.sitemap_urls,
          result.error, result.domain),
     )  # fmt: skip
     conn.commit()
@@ -210,7 +310,11 @@ def select_documents(
     state: str | None = None,
     file_type: str | None = None,
     search: str | None = None,
+    books_only: bool = False,
+    new_since: str | None = None,
 ) -> list[sqlite3.Row]:
+    """Documents with their site's owner. With new_since, only documents that appeared after that
+    time on a site's later crawls; everything on a site's first crawl is the baseline, not news."""
     where, params = ["1 = 1"], []
     for column, value in (("d.domain", domain), ("s.level", level), ("s.state", state and state.upper()),
                           ("d.file_type", file_type)):  # fmt: skip
@@ -220,13 +324,109 @@ def select_documents(
     if search:
         where.append("(d.title LIKE ? OR d.url LIKE ?)")
         params.extend([f"%{search}%"] * 2)
+    if books_only:
+        where.append("d.book_score > 0")
+    if new_since:
+        where.append("d.first_seen > ? AND d.first_seen > s.first_crawled_at")
+        params.append(new_since)
     sql = f"""
         SELECT d.*, s.organization, s.suborganization, s.level, s.state
         FROM documents d JOIN sites s ON s.domain = d.domain
         WHERE {' AND '.join(where)}
-        ORDER BY s.level, s.organization, d.title
+        ORDER BY d.book_score DESC, s.level, s.organization, d.title
     """
     return conn.execute(sql, params).fetchall()
+
+
+def seed_urls(conn: sqlite3.Connection, domain: str, limit: int = 50) -> list[str]:
+    """Pages worth re-checking first on a re-crawl: where documents were found before, then
+    pages that looked like publication listings."""
+    rows = conn.execute(
+        """
+        SELECT url FROM (
+            SELECT found_on AS url, 2 AS rank FROM documents WHERE domain = ? AND found_via != 'sitemap'
+            UNION
+            SELECT url, 1 AS rank FROM pages WHERE domain = ? AND hint_score > 0
+        ) WHERE url IS NOT NULL GROUP BY url ORDER BY MAX(rank) DESC, url LIMIT ?
+        """,
+        (domain, domain, limit),
+    ).fetchall()
+    return [r["url"] for r in rows]
+
+
+# --- agencies -------------------------------------------------------------------
+
+
+def upsert_agency(conn: sqlite3.Connection, agency: dict) -> None:
+    conn.execute(
+        """
+        INSERT INTO agencies (id, name, short_name, level, state, parent_id, website, host, synced_at)
+        VALUES (:id, :name, :short_name, :level, :state, :parent_id, :website, :host, :synced_at)
+        ON CONFLICT (id) DO UPDATE SET name = excluded.name, short_name = excluded.short_name,
+            level = excluded.level, state = excluded.state, parent_id = excluded.parent_id,
+            website = excluded.website, host = excluded.host, synced_at = excluded.synced_at
+        """,
+        {**agency, "synced_at": now()},
+    )
+
+
+def select_agencies(
+    conn: sqlite3.Connection, level: str | None = None, state: str | None = None, search: str | None = None
+) -> list[sqlite3.Row]:
+    where, params = ["1 = 1"], []
+    if level:
+        where.append("a.level = ?")
+        params.append(level)
+    if state:
+        where.append("a.state = ?")
+        params.append(state.upper())
+    if search:
+        where.append("(a.name LIKE ? OR a.short_name LIKE ? OR a.host LIKE ?)")
+        params.extend([f"%{search}%"] * 3)
+    return conn.execute(
+        f"""
+        SELECT a.*, s.crawl_status, s.documents_found, s.crawled_at
+        FROM agencies a LEFT JOIN sites s ON s.domain = a.host
+        WHERE {' AND '.join(where)} ORDER BY a.level, a.state, a.name
+        """,
+        params,
+    ).fetchall()
+
+
+# --- watches ----------------------------------------------------------------------
+
+
+def add_watch(conn: sqlite3.Connection, watch: dict) -> None:
+    conn.execute(
+        """
+        INSERT INTO watches (name, topic, keywords, level, state, domain, search, books_only, created_at)
+        VALUES (:name, :topic, :keywords, :level, :state, :domain, :search, :books_only, :created_at)
+        ON CONFLICT (name) DO UPDATE SET topic = excluded.topic, keywords = excluded.keywords,
+            level = excluded.level, state = excluded.state, domain = excluded.domain, search = excluded.search,
+            books_only = excluded.books_only
+        """,
+        {**watch, "created_at": now()},
+    )
+    conn.commit()
+
+
+def list_watches(conn: sqlite3.Connection, names: list[str] | None = None) -> list[sqlite3.Row]:
+    if names:
+        return conn.execute(
+            f"SELECT * FROM watches WHERE name IN ({', '.join('?' for _ in names)}) ORDER BY name", names
+        ).fetchall()
+    return conn.execute("SELECT * FROM watches ORDER BY name").fetchall()
+
+
+def remove_watch(conn: sqlite3.Connection, name: str) -> bool:
+    cur = conn.execute("DELETE FROM watches WHERE name = ?", (name,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def mark_watch_run(conn: sqlite3.Connection, name: str, stamp: str) -> None:
+    conn.execute("UPDATE watches SET last_run_at = ? WHERE name = ?", (stamp, name))
+    conn.commit()
 
 
 def stats(conn: sqlite3.Connection) -> list[dict[str, Any]]:

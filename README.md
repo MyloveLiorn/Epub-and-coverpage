@@ -9,7 +9,7 @@ The pipeline has four steps:
 3. **Check the Amazon market.** Each book is searched on Amazon and gets a verdict (for example `open_gap`: nobody sells it yet, but books on the topic sell) and a 0–100 score.
 4. **Track.** Watched books and ASINs are snapshotted on every run. You're told when a competing edition appears, when the sales rank moves 20% or more, or when the price changes.
 
-A second tool in this repo, [`govweb`](#govweb-the-gov-website-map), maps the government's websites and finds the PDFs and ebooks they host. It will be merged into `govbooks` later.
+A second tool in this repo, [`govweb`](#govweb-the-government-website-map), maps federal and state government websites, finds the books they host, and watches for new ones. It will be merged into `govbooks` later.
 
 ## Install
 
@@ -90,45 +90,69 @@ The **score** combines demand (up to 60 points, from the best sales rank, or the
 
 ## Copyright screening
 
-Each book gets a `rights` value:
+Both tools screen every work with the same rules (`govbooks/copyright_policy.py`), and give it a `rights` value:
 
-- `public_domain`: published 95 or more years ago, or the source says it's public domain.
-- `likely_public_domain`: a US federal government work ([17 U.S.C. §105](https://www.law.cornell.edu/uscode/text/17/105)). These can still contain copyrighted material written by contractors or reproduced from others.
-- `check`: a state government work. States set their own copyright policies.
-- `unknown`: government authorship not confirmed.
+| Value | Meaning |
+|---|---|
+| `public_domain` | Published 95 or more years ago, or the source says it's public domain. |
+| `likely_public_domain` | A US federal work ([17 U.S.C. §105](https://www.law.cornell.edu/uscode/text/17/105)), or a work from a state whose law makes its works free to reuse. |
+| `check` | Depends on the item: federal exceptions, states with mixed or unclear rules, local and tribal governments, university extension publications. |
+| `likely_copyrighted` | A work from a state that claims copyright in its publications. Ask the state for permission. |
+| `unknown` | Government authorship not confirmed. |
 
-`market check` and `report` include only the first two unless you pass `--any-rights`. This is a screening aid, not legal advice. Also, Kindle Direct Publishing accepts public-domain books only when you add something new (annotations, translation, illustrations, etc.). Read KDP's current public-domain content guidelines before publishing.
+**Federal exceptions.** Even federal works are not always free:
+- **Contractors and grantees:** works they write, and third-party photos or text inside federal books, can be copyrighted.
+- **US Postal Service:** its works are outside §105, and stamp designs after 1978 are copyrighted.
+- **Smithsonian:** works by its trust-fund staff and contractors can be copyrighted.
+- **Federal Reserve Banks:** they are not federal agencies, so their publications are copyrighted.
+- **NIST Standard Reference Data:** it can be copyrighted.
+- **Outside the US:** the US may claim copyright abroad, so check before choosing worldwide sales territories.
 
-## govweb: the .gov website map
+**States.** `govbooks/data/state_copyright.json` records each state's rule (`public_domain`, `claims_copyright`, `mixed` or `unclear`), with the statutes or cases behind it, sources and a confidence level. States without clear evidence are marked `unclear` rather than guessed. See the table with `govweb copyright`, or one state with `govweb copyright --state TX`.
 
-`govweb` maps every US government website and finds the publications hosted on them. It is separate from `govbooks` for now, with its own database (`govweb.db`). The two already share topics: `govweb docs --topic` reads them from `govbooks.toml`.
+`market check` and `report` include only the first two values unless you pass `--any-rights`; `govweb docs --reusable` does the same. This is a screening aid, not legal advice: read each item's own rights notice. Also, Kindle Direct Publishing accepts public-domain books only when you add something new (annotations, translation, illustrations, etc.). Read KDP's current public-domain content guidelines before publishing.
+
+## govweb: the government website map
+
+`govweb` maps US federal and state government websites, finds the books hosted on them, and tells you when new ones appear. It is separate from `govbooks` for now, with its own database (`govweb.db`). The two already share topics (`--topic` reads them from `govbooks.toml`) and copyright rules.
 
 1. **The map.** The [official .gov registry](https://github.com/cisagov/dotgov-data), published by CISA, lists about 16,800 domains with their type (federal, state, county, city, tribal, special district and more), owning organization and state. `govweb sync` loads it. The tree groups federal, interstate and tribal sites by organization, and all other levels by state first.
-2. **The crawl.** For each site, `govweb crawl` reads `robots.txt` and the sitemaps, then follows links from the home page. It crawls pages that look like publication listings first ("publications", "library", "reports", "handbooks" and so on). It records every linked PDF, EPUB, MOBI and Word document, using its link text as the title.
-3. **Sub-sites.** Many agencies live on subdomains (`water.ca.gov` under `ca.gov`, `ars.usda.gov` under `usda.gov`). A crawl stays on one host. Other hosts it finds are added to the map as sub-sites that inherit their parent's owner, and each can be crawled on its own.
+2. **Agency websites.** `govweb agencies sync` adds every federal agency (Federal Register) and state agency (Wikidata) with an official website. That fills two gaps in the registry:
+   - Agencies on subdomains, such as `fs.usda.gov` (Forest Service) or `water.ca.gov` (California Department of Water Resources).
+   - Agencies outside `.gov`, such as `army.mil` or `dot.state.tx.us`.
+3. **The crawl.** For each site, `govweb crawl` reads `robots.txt` and the sitemaps, then follows links from the home page. It crawls pages that look like publication listings first ("publications", "library", "reports", "handbooks" and so on). It records every linked PDF, EPUB, MOBI and Word document, using its link text as the title, and scores how book-like each one is (handbooks and guides score up, agendas and forms score down).
+4. **Sub-sites.** A crawl stays on one host. Other subdomains it finds are added to the map as sub-sites that inherit their parent's owner, and each can be crawled on its own.
+5. **Any website.** `govweb crawl https://any.site/` works on any site, not only government ones. Name it with `govweb add`.
+6. **New books.** Re-crawls start from the pages where documents were found before. Documents that appear on a later crawl count as new; everything found on a site's first crawl is the baseline. A **watch** is a saved search (a topic or keywords, plus a level, state or site). `govweb watch run` re-crawls the sites due and reports only the new matching books.
+7. **Copyright.** Every document is screened by who published it: the federal rule and its exceptions, or its state's policy (see [Copyright screening](#copyright-screening)).
 
 ```bash
-govweb sync                                   # load the .gov registry
-govweb map --depth 1                          # levels and states / organizations, with counts
-govweb map --level federal --search agriculture
-govweb map --level federal --out federal.json # the tree as JSON
-govweb crawl usda.gov water.ca.gov            # specific sites (subdomains are fine)
-govweb crawl --level federal --limit 50       # the first 50 federal sites
-govweb docs --topic beekeeping                # documents matching a govbooks topic, best first
-govweb docs --level state --type pdf --out state-pdfs.csv
-govweb pages --domain usda.gov                # the publication listing pages it found
+govweb sync                                    # load the .gov registry
+govweb agencies sync                           # add federal and state agency websites
+govweb map --level state --state CA            # California's sites, by organization
+govweb map --level federal --out federal.json  # the tree as JSON
+govweb crawl --level federal --limit 50        # the first 50 federal sites
+govweb crawl --state CA --level state          # California state sites
+govweb crawl https://www.army.mil              # any site
+govweb docs --topic beekeeping --books-only --reusable
+govweb new --days 7 --books-only               # what appeared on re-crawls this week
+
+govweb watch add bees --topic beekeeping --level federal
+govweb watch add ca-guides --keywords "field guide, handbook" --state CA
+govweb watch run --out reports/new-books.md    # e.g. weekly, from Task Scheduler or cron
+govweb copyright                               # the policy table; --state TX for details
 ```
 
 **Politeness:**
 - It identifies itself as `govweb/0.1` and obeys `robots.txt`, including crawl delays up to 10 seconds.
 - It waits at least 1 second between requests to the same host (`--delay`).
-- It fetches at most 100 pages per site (`--max-pages`) and only reads HTML pages, capped at 2 MB each. Documents are recorded but not downloaded.
+- It fetches at most 100 pages per site (`--max-pages`; 60 for watch re-crawls) and only reads HTML pages, capped at 2 MB each. Documents are recorded but not downloaded.
 - Sites run in parallel (`--workers`, default 4), but each individual site is crawled one request at a time.
-- Sites crawled in the last 30 days are skipped (`--skip-recent-days`).
+- `crawl` skips sites crawled in the last 30 days (`--skip-recent-days`). `watch run` re-crawls sites last crawled over 7 days ago (`--recrawl-days`).
 
 At the defaults, a site takes 2 to 3 minutes. All 1,317 federal domains take about 12 hours with 4 workers.
 
-The registry has no personal data in the map: its security-contact email column is dropped on import.
+The map holds no personal data: the registry's security-contact email column is dropped on import.
 
 ## Development
 
@@ -142,9 +166,11 @@ The tests use recorded response shapes for every API, so they run offline.
 ## Layout
 
 ```
-govweb/            the .gov website map: registry.py, fetch.py (polite fetching), parse.py (HTML and
-                   sitemaps), classify.py, crawl.py, tree.py, db.py, cli.py
+govweb/            the government website map: registry.py (.gov list), agencies.py (agency websites),
+                   fetch.py (polite fetching), parse.py (HTML and sitemaps), classify.py (documents,
+                   book-likeness), crawl.py, watch.py (new-book watches), tree.py, db.py, cli.py
 govbooks/
+  copyright_policy.py  federal rule and exceptions, state policies (data/state_copyright.json)
   agencies/        federal_register.py, wikidata.py, index.py (name → office matching), tree helpers
   sources/         govinfo.py, internet_archive.py, open_library.py, google_books.py
   market/          base.py (scoring), keepa.py, creators.py, catalog.py

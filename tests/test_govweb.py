@@ -260,7 +260,7 @@ def test_cli_end_to_end(cli_env, capsys):
     assert "federal" in out
 
     code, out = run(capsys, "docs", "--out", "docs.csv")
-    assert (cli_env / "docs.csv").read_text().startswith("score,title,file_type,url")
+    assert (cli_env / "docs.csv").read_text().startswith("score,book_score,rights,title,file_type,url")
 
     code, out = run(capsys, "crawl", "--level", "federal")  # recently crawled sites are skipped
     assert "Crawling 2 site(s)" in out  # recreation.gov and the new ars.usda.gov sub-site

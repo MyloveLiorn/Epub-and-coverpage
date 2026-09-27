@@ -150,7 +150,7 @@ def seed_book(conn, book_id="b1", title=TITLE, rights="likely_public_domain"):
     stamp = db.now()
     db.save_book(conn, {
         "id": book_id, "title": title, "subtitle": None, "authors": [], "publisher": None, "year": 1988,
-        "subjects": [], "description": None, "isbns": [], "agency_id": "fr:12", "level": "federal",
+        "subjects": [], "description": None, "isbns": [], "agency_id": "fr:12", "level": "federal", "jurisdiction": "United States",
         "rights": rights, "rights_note": "", "fulltext_url": None, "sources": [], "first_seen": stamp,
         "last_seen": stamp,
     })  # fmt: skip

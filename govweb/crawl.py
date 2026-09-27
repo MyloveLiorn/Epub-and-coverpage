@@ -106,7 +106,10 @@ class _Crawl:
     """Pages are fetched from one host (plus its www. twin); documents are recorded anywhere
     under the registered domain, and other subdomains are noted for their own crawl."""
 
-    def __init__(self, host: str, registered_domain: str, fetcher: FetcherLike, limits: CrawlLimits):
+    def __init__(
+        self, host: str, registered_domain: str, fetcher: FetcherLike, limits: CrawlLimits, seeds: list[str]
+    ):
+        self.seeds = seeds
         self.fetcher = fetcher
         self.limits = limits
         self.result = SiteResult(host)
@@ -200,6 +203,10 @@ class _Crawl:
         if self.limits.use_sitemaps:
             self.read_sitemaps(home.url)
         self.visit(home.url, 0, "home", home)
+        for url in self.seeds:  # pages that had documents or looked like listings last time
+            if url not in self.seen and _bare(_host(url)) in self.hosts:
+                self.seen.add(url)
+                heapq.heappush(self.queue, (-100, 1, next(self.counter), 1, url, "seed"))
         while self.queue and self.fetches < self.limits.max_pages:
             *_, depth, url, via = heapq.heappop(self.queue)
             if self.fetcher.allowed(url):
@@ -208,8 +215,14 @@ class _Crawl:
 
 
 def crawl_site(
-    host: str, fetcher: FetcherLike, limits: CrawlLimits | None = None, registered_domain: str | None = None
+    host: str,
+    fetcher: FetcherLike,
+    limits: CrawlLimits | None = None,
+    registered_domain: str | None = None,
+    seeds: list[str] | None = None,
 ) -> SiteResult:
     """Crawl one site. ``host`` is a registry domain (usda.gov) or one of its subdomains
-    (water.ca.gov, with registered_domain="ca.gov")."""
-    return _Crawl(host, registered_domain or _bare(host), fetcher, limits or CrawlLimits()).run()
+    (water.ca.gov, with registered_domain="ca.gov"). ``seeds`` are pages fetched right after
+    the home page; re-crawls pass the pages where documents were found before, so new
+    publications on known listing pages are caught first."""
+    return _Crawl(host, registered_domain or _bare(host), fetcher, limits or CrawlLimits(), seeds or []).run()

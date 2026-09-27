@@ -24,7 +24,13 @@ class MarketProvider(Protocol):
     def lookup(self, asins: list[str]) -> list[Listing]: ...
 
 
-RIGHTS_FACTOR = {"public_domain": 1.0, "likely_public_domain": 0.9, "check": 0.6, "unknown": 0.4}
+RIGHTS_FACTOR = {
+    "public_domain": 1.0,
+    "likely_public_domain": 0.9,
+    "check": 0.6,
+    "unknown": 0.4,
+    "likely_copyrighted": 0.1,
+}
 
 
 @dataclass

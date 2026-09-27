@@ -12,7 +12,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from govbooks import agencies as agency_map
-from govbooks import db
+from govbooks import copyright_policy, db
 from govbooks.config import Config, load_config
 from govbooks.discover import discover
 from govbooks.http import Http, HttpError
@@ -23,7 +23,7 @@ from govbooks.states import resolve_state
 from govbooks.tracking import run_tracking
 
 EXAMPLE_CONFIG = Path(__file__).resolve().parent / "example.toml"
-RIGHTS_OK = ["public_domain", "likely_public_domain"]
+RIGHTS_OK = copyright_policy.REUSABLE
 
 
 def say(message: str = "") -> None:
@@ -447,7 +447,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = books.add_parser("list", help="list books, best first")
     p.add_argument("--topic")
     p.add_argument("--min-score", type=int, default=0, help="minimum topic score")
-    p.add_argument("--rights", action="append", choices=["public_domain", "likely_public_domain", "check", "unknown"])
+    p.add_argument("--rights", action="append", choices=copyright_policy.RIGHTS_VALUES)
     p.add_argument("--level", choices=["federal", "state"])
     p.add_argument("--limit", type=int, default=50)
     p.set_defaults(func=cmd_books_list)

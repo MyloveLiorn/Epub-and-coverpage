@@ -25,7 +25,7 @@ LEVELS = {
     "tribal": "tribal",
     "native sovereign nation": "tribal",
 }
-LEVEL_NAMES = sorted(set(LEVELS.values()))
+LEVEL_NAMES = sorted(set(LEVELS.values()) | {"other"})  # "other": sites added by hand
 
 
 @dataclass

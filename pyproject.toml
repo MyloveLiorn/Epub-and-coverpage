@@ -21,7 +21,7 @@ govweb = "govweb.cli:main"
 include = ["govbooks*", "govweb*"]
 
 [tool.setuptools.package-data]
-govbooks = ["example.toml"]
+govbooks = ["example.toml", "data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

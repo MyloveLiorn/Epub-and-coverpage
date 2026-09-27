@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Callable
 
-from govbooks import db
+from govbooks import copyright_policy, db
 from govbooks.agencies import AgencyIndex, AgencyMatch
 from govbooks.config import Topic
 from govbooks.http import HttpError
@@ -38,22 +38,19 @@ def score_topic(topic: Topic, record: Record) -> int:
     return score
 
 
-def assess_rights(level: str | None, year: int | None, source_says_pd: bool | None, today: date | None = None) -> tuple[str, str]:
-    """A first-pass copyright call. It is a screening aid, not legal advice."""
-    today = today or date.today()
-    # US works published 95+ years ago are out of copyright on 1 January of the 96th year.
-    if year and year <= today.year - 96:
-        return "public_domain", f"Published {year}; its US copyright term has ended."
-    if source_says_pd:
-        return "public_domain", "The source lists it as public domain or a free public ebook."
-    if level == "federal":
-        return (
-            "likely_public_domain",
-            "US federal government work (17 U.S.C. 105). Check for contractor-written or third-party material.",
-        )
-    if level == "state":
-        return "check", "State government work: copyright policy differs by state. Verify before reuse."
-    return "unknown", "Government authorship not confirmed. Verify copyright before reuse."
+def assess_rights(
+    level: str | None,
+    year: int | None,
+    source_says_pd: bool | None,
+    today: date | None = None,
+    jurisdiction: str | None = None,
+    names: list[str | None] | tuple = (),
+) -> tuple[str, str]:
+    """A first-pass copyright call (see govbooks.copyright_policy). A screening aid, not legal advice."""
+    rights = copyright_policy.assess(
+        level, state=jurisdiction, names=names, year=year, source_says_pd=source_says_pd, today=today
+    )
+    return rights.status, rights.note
 
 
 @dataclass
@@ -80,6 +77,7 @@ def _merge(existing: sqlite3.Row | None, record: Record, match: AgencyMatch, sta
             "isbns": record.isbns,
             "agency_id": match.agency_id,
             "level": match.level,
+            "jurisdiction": match.jurisdiction,
             "fulltext_url": record.fulltext_url,
             "sources": [source_ref],
             "first_seen": stamp,
@@ -98,9 +96,13 @@ def _merge(existing: sqlite3.Row | None, record: Record, match: AgencyMatch, sta
             book["sources"].append(source_ref)
         # A named agency beats a publisher-only guess.
         if match.agency_id and not book["agency_id"]:
-            book["agency_id"], book["level"] = match.agency_id, match.level
+            book["agency_id"], book["level"], book["jurisdiction"] = match.agency_id, match.level, match.jurisdiction
+        book["jurisdiction"] = book["jurisdiction"] or match.jurisdiction
         book["pd_flag"] = record.public_domain or book["rights"] == "public_domain"
-    book["rights"], book["rights_note"] = assess_rights(book["level"], book["year"], book.pop("pd_flag"))
+    names = [*book["authors"], book["publisher"], match.name]
+    book["rights"], book["rights_note"] = assess_rights(
+        book["level"], book["year"], book.pop("pd_flag"), jurisdiction=book["jurisdiction"], names=names
+    )
     book["last_seen"] = stamp
     return book
 

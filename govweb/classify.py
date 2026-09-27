@@ -60,3 +60,27 @@ def best_title(link_text: str, url: str) -> str:
 def same_site(url: str, domain: str) -> bool:
     host = urlsplit(url).netloc.lower().split(":")[0]
     return host == domain or host.endswith("." + domain)
+
+
+# Words that make a document look like a book worth republishing, and words that mark
+# paperwork. Matched as whole words in the title and file name; plurals count too.
+BOOK_WORDS = {
+    "handbook": 2, "manual": 2, "guide": 2, "guidebook": 2, "book": 2, "cookbook": 2, "atlas": 2,
+    "encyclopedia": 2, "primer": 2, "textbook": 2, "workbook": 2, "almanac": 2, "yearbook": 2,
+    "history": 1, "bulletin": 1, "report": 1, "proceedings": 1, "series": 1, "curriculum": 1,
+    "story": 1, "stories": 1, "field": 1, "introduction": 1, "principles": 1,
+}  # fmt: skip
+PAPERWORK_WORDS = {
+    "agenda": -3, "minutes": -3, "invoice": -3, "receipt": -3, "rfp": -3, "form": -2, "application": -2,
+    "permit": -2, "notice": -2, "flyer": -2, "memo": -2, "memorandum": -2, "resolution": -2, "ordinance": -2,
+    "contract": -2, "bid": -2, "schedule": -2, "calendar": -2, "press": -1, "release": -1, "newsletter": -1,
+    "checklist": -1, "packet": -1, "budget": -1, "audit": -1, "testimony": -1, "letter": -1,
+}  # fmt: skip
+
+
+def book_score(title: str, url: str) -> int:
+    """Above zero: looks like a book or book-length guide. Below zero: forms, agendas, minutes."""
+    words = set(_words(f"{title} {title_from_url(url)}"))
+    words |= {w[:-1] for w in words if len(w) > 3 and w.endswith("s")}
+    score = sum(BOOK_WORDS.get(w, 0) + PAPERWORK_WORDS.get(w, 0) for w in words)
+    return max(-5, min(5, score))

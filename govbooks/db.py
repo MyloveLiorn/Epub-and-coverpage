@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS books (
     isbns TEXT NOT NULL DEFAULT '[]',
     agency_id TEXT,
     level TEXT,
+    jurisdiction TEXT,
     rights TEXT NOT NULL,
     rights_note TEXT,
     fulltext_url TEXT,
@@ -96,10 +97,19 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+# Columns added after the first release, so older databases are upgraded in place.
+MIGRATIONS = {"books": {"jurisdiction": "TEXT"}}
+
+
 def connect(path: Path | str) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    for table, columns in MIGRATIONS.items():
+        existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for column, spec in columns.items():
+            if existing and column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {spec}")
     conn.executescript(SCHEMA)
     return conn
 
@@ -158,7 +168,8 @@ def get_book(conn: sqlite3.Connection, book_id: str) -> sqlite3.Row | None:
 def save_book(conn: sqlite3.Connection, book: dict) -> None:
     columns = [
         "id", "title", "subtitle", "authors", "publisher", "year", "subjects", "description", "isbns",
-        "agency_id", "level", "rights", "rights_note", "fulltext_url", "sources", "first_seen", "last_seen",
+        "agency_id", "level", "jurisdiction", "rights", "rights_note", "fulltext_url", "sources", "first_seen",
+        "last_seen",
     ]  # fmt: skip
     values = [json.dumps(book[c]) if isinstance(book[c], list) else book[c] for c in columns]
     placeholders = ", ".join("?" for _ in columns)

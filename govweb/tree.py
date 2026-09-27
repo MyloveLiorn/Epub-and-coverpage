@@ -6,7 +6,7 @@ import sqlite3
 from dataclasses import dataclass, field
 
 # Levels whose sites are organized by organization; the rest are organized by state first.
-NATIONAL_LEVELS = {"federal", "interstate", "tribal"}
+NATIONAL_LEVELS = {"federal", "interstate", "tribal", "other"}
 
 
 @dataclass
