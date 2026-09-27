@@ -11,7 +11,7 @@ import heapq
 import itertools
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Callable, Protocol
 from urllib.parse import urlsplit
 
 from govweb.classify import (
@@ -78,7 +78,7 @@ class FoundDocument:
 @dataclass
 class SiteResult:
     domain: str  # the host that was crawled, e.g. water.ca.gov
-    status: str = "ok"  # ok, unreachable, blocked_by_robots
+    status: str = "ok"  # ok, unreachable, blocked_by_robots, alias (redirects to another mapped site)
     home_url: str | None = None
     error: str | None = None
     sitemap_urls: int = 0
@@ -127,9 +127,11 @@ class _Crawl:
     under the registered domain, and other subdomains are noted for their own crawl."""
 
     def __init__(
-        self, host: str, registered_domain: str, fetcher: FetcherLike, limits: CrawlLimits, seeds: list[str]
-    ):
+        self, host: str, registered_domain: str, fetcher: FetcherLike, limits: CrawlLimits, seeds: list[str],
+        is_mapped: Callable[[str], bool] | None = None,
+    ):  # fmt: skip
         self.seeds = seeds
+        self.is_mapped = is_mapped
         self.fetcher = fetcher
         self.limits = limits
         self.result = SiteResult(host)
@@ -216,6 +218,11 @@ class _Crawl:
             self.result.error = (home.error if home else None) or f"HTTP {home.status if home else '?'}"
             return self.result
         final_host = _bare(_host(home.url))
+        if final_host not in self.hosts and self.is_mapped and self.is_mapped(final_host):
+            # presidiotrust.gov -> presidio.gov: the same website, crawled as a site of its own.
+            self.result.status = "alias"
+            self.result.home_url = home.url
+            return self.result
         if final_host not in self.hosts:  # the site redirects elsewhere; follow it there
             self.hosts.add(final_host)
             if not any(same_site(home.url, d) for d in self.domains):
@@ -245,9 +252,14 @@ def crawl_site(
     limits: CrawlLimits | None = None,
     registered_domain: str | None = None,
     seeds: list[str] | None = None,
+    is_mapped: Callable[[str], bool] | None = None,
 ) -> SiteResult:
     """Crawl one site. ``host`` is a registry domain (usda.gov) or one of its subdomains
     (water.ca.gov, with registered_domain="ca.gov"). ``seeds`` are pages fetched right after
     the home page; re-crawls pass the pages where documents were found before, so new
-    publications on known listing pages are caught first."""
-    return _Crawl(host, registered_domain or _bare(host), fetcher, limits or CrawlLimits(), seeds or []).run()
+    publications on known listing pages are caught first. ``is_mapped(host)`` tells whether
+    a host is a site of its own on the map: a site whose home page redirects to one is an
+    alias and isn't crawled twice."""
+    return _Crawl(
+        host, registered_domain or _bare(host), fetcher, limits or CrawlLimits(), seeds or [], is_mapped
+    ).run()

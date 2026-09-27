@@ -170,3 +170,17 @@ def test_cli_amazon_checks_topic_books_first(army_cli, capsys, monkeypatch):
     assert sorted(provider.queries) == ["Beekeeping at Fort Bragg", "Survival Field Manual"]
     code, out = run(capsys, "amazon", "--topics-only")
     assert "Nothing to check" in out
+
+
+def test_a_site_that_redirects_to_another_mapped_site_is_not_crawled_twice(army_cli, capsys):
+    army_cli.pages["https://presidiotrust.gov/"] = (301, "text/html", "https://www.presidio.gov/")
+    army_cli.pages["https://www.presidio.gov/"] = (200, "text/html", html("Presidio", ("/a.pdf", "Trail Guide")))
+    conn = db.connect("w.db")
+    for host in ("presidio.gov", "presidiotrust.gov"):
+        db.add_site(conn, host, organization="Presidio Trust", level="federal")
+    code, out = run(capsys, "crawl", "presidiotrust.gov", "--no-sitemaps")
+    assert "presidiotrust.gov: same website as www.presidio.gov, not crawled twice" in out
+    assert db.get_site(conn, "presidiotrust.gov")["crawl_status"] == "alias"
+    assert db.select_documents(conn) == []
+    code, out = run(capsys, "crawl", "presidio.gov", "--no-sitemaps")
+    assert "presidio.gov: 1 pages (0 publication pages), 1 documents" in out

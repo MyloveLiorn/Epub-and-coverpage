@@ -170,14 +170,16 @@ def run_crawls(conn: sqlite3.Connection, sites: list[sqlite3.Row], args: argpars
         topic_keywords=getattr(args, "crawl_keywords", None) or [],
     )  # fmt: skip
     say(f"Crawling {len(sites)} site(s), up to {limits.max_pages} pages each, {args.workers} at a time...")
+    mapped = {r[0] for r in conn.execute("SELECT domain FROM sites")}
     new_documents = 0
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {
             pool.submit(
-                crawl_site, s["domain"], make_fetcher(args), limits, s["parent_domain"], db.seed_urls(conn, s["domain"])
+                crawl_site, s["domain"], make_fetcher(args), limits, s["parent_domain"],
+                db.seed_urls(conn, s["domain"]), mapped.__contains__,
             ): s
             for s in sites
-        }
+        }  # fmt: skip
         for done, future in enumerate(as_completed(futures), 1):
             site = futures[future]
             try:
@@ -196,6 +198,8 @@ def run_crawls(conn: sqlite3.Connection, sites: list[sqlite3.Row], args: argpars
                 + (f" ({fresh} new)" if site["crawled_at"] and fresh else "")
                 + (f", {new_subsites} new sub-sites" if new_subsites else "")
                 if result.status == "ok"
+                else f"same website as {urlsplit(result.home_url).netloc}, not crawled twice"
+                if result.status == "alias"
                 else f"{result.status} {result.error or ''}".strip()
             )
             say(f"[{done}/{len(sites)}] {site['domain']}: {detail}")
