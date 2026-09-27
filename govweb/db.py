@@ -181,6 +181,19 @@ def get_site(conn: sqlite3.Connection, domain: str) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM sites WHERE domain = ?", (domain,)).fetchone()
 
 
+def remove_sites(conn: sqlite3.Connection, domains: list[str]) -> int:
+    """Take sites off the map with everything found on them."""
+    for domain in domains:
+        conn.execute(
+            "DELETE FROM amazon_checks WHERE url IN (SELECT url FROM documents WHERE domain = ?)", (domain,)
+        )
+        for table in ("documents", "pages"):
+            conn.execute(f"DELETE FROM {table} WHERE domain = ?", (domain,))
+        conn.execute("DELETE FROM sites WHERE domain = ? OR parent_domain = ?", (domain, domain))
+    conn.commit()
+    return len(domains)
+
+
 def registered_domain_of(conn: sqlite3.Connection, host: str) -> sqlite3.Row | None:
     """The top-level site a host belongs to: water.ca.gov -> ca.gov (itself if it is one)."""
     labels = host.lower().removeprefix("www.").split(".")
@@ -247,7 +260,10 @@ def select_sites(
     not_crawled_since: str | None = None,
     crawled_only: bool = False,
     limit: int | None = None,
+    rotation: bool = False,
 ) -> list[sqlite3.Row]:
+    """Sites matching the filters. With rotation, never-crawled sites come first, then the ones
+    crawled longest ago, so capped runs work through the whole map over time."""
     where, params = ["in_registry = 1"], []
     if domains:
         where.append(f"domain IN ({', '.join('?' for _ in domains)})")
@@ -268,7 +284,10 @@ def select_sites(
         params.append(not_crawled_since)
     if crawled_only:
         where.append("crawled_at IS NOT NULL")
-    sql = f"SELECT * FROM sites WHERE {' AND '.join(where)} ORDER BY level, state, organization, domain"
+    order = "level, state, organization, domain"
+    if rotation:
+        order = "crawled_at IS NOT NULL, crawled_at, source != 'registry', " + order
+    sql = f"SELECT * FROM sites WHERE {' AND '.join(where)} ORDER BY {order}"
     if limit:
         sql += " LIMIT ?"
         params.append(limit)

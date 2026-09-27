@@ -192,7 +192,7 @@ def cmd_crawl(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
         return 1
     since = _since(args.skip_recent_days) if not args.domains and args.skip_recent_days else None
     _ensure_sites(conn, args.domains)
-    sites = _selected(args, conn, not_crawled_since=since, limit=args.limit)
+    sites = _selected(args, conn, not_crawled_since=since, limit=args.limit, rotation=True)
     if not sites:
         say("Nothing to crawl.")
         return 1
@@ -280,7 +280,9 @@ def cmd_agencies_sync(args: argparse.Namespace, conn: sqlite3.Connection) -> int
     stats = import_agencies(conn, agencies)
     say(
         f"{stats.agencies} agencies, {stats.with_website} with a website: {stats.new_sites} new sites outside the "
-        f".gov registry, {stats.new_subsites} new sub-sites, {stats.named_subsites} sub-sites named."
+        f".gov registry, {stats.new_subsites} new sub-sites, {stats.named_subsites} sub-sites named, "
+        f"{stats.not_government} skipped as not on a government domain"
+        + (f", {stats.removed_sites} earlier non-government sites removed." if stats.removed_sites else ".")
     )
     return 0
 

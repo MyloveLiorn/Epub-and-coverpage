@@ -90,16 +90,29 @@ def _bare(host: str) -> str:
 
 
 def _find_home(host: str, fetcher: FetcherLike) -> tuple[str, FetchResult | None]:
-    last = None
+    """Try https://host, https://www.host and http://host. On failure, return the most telling
+    result: an HTTP answer beats a timeout, which beats a missing DNS name."""
     candidates = [f"https://{host}/", f"http://{host}/"]
     if not host.startswith("www."):
         candidates.insert(1, f"https://www.{host}/")
+    tried: list[FetchResult] = []
+    timed_out: set[str] = set()
     for url in candidates:
+        if _host(url) in timed_out:  # the same server won't answer on another port either
+            continue
         result = fetcher.get(url, html_only=True)
         if result.ok:
             return url, result
-        last = result
-    return "", last
+        tried.append(result)
+        if result.error and "timed out" in result.error:
+            timed_out.add(_host(url))
+
+    def telling(result: FetchResult) -> int:
+        if result.status is not None:
+            return 2
+        return 1 if result.error and "timed out" in result.error else 0
+
+    return "", max(tried, key=telling) if tried else None
 
 
 class _Crawl:

@@ -7,6 +7,7 @@ importing them fills those gaps and names the office behind each subdomain.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass
 from urllib.parse import urlsplit
@@ -28,6 +29,15 @@ def site_host(url: str | None) -> str | None:
         url = "https://" + url
     host = urlsplit(url).netloc.lower().split("@")[-1].split(":")[0].removeprefix("www.")
     return host if "." in host else None
+
+
+_STATE_US_DOMAIN = re.compile(r"(^|\.)state\.[a-z]{2}\.us$")
+
+
+def is_government_host(host: str) -> bool:
+    """Agency directories carry stale or wrong websites (act.org for a defunct agency, archive
+    copies on .edu sites). Only hosts on government domains are trusted as the agency's site."""
+    return host.endswith((".gov", ".mil", ".fed.us")) or bool(_STATE_US_DOMAIN.search(host))
 
 
 def _display_name(name: str, registry_names: dict[str, str]) -> str:
@@ -61,6 +71,8 @@ class ImportStats:
     new_sites: int = 0  # outside the registry: .mil, .us, ...
     new_subsites: int = 0  # subdomains of registry domains
     named_subsites: int = 0  # existing sub-sites given their agency's name
+    not_government: int = 0  # websites outside government domains, not added
+    removed_sites: int = 0  # earlier non-government agency sites taken off the map
 
 
 def import_agencies(conn: sqlite3.Connection, agencies: list[Agency]) -> ImportStats:
@@ -84,6 +96,9 @@ def import_agencies(conn: sqlite3.Connection, agencies: list[Agency]) -> ImportS
         if not host:
             continue
         stats.with_website += 1
+        if not is_government_host(host):
+            stats.not_government += 1
+            continue
         existing = db.get_site(conn, host)
         if existing is not None:
             if existing["source"] == "subdomain" and existing["suborganization"] in (None, ""):
@@ -105,6 +120,11 @@ def import_agencies(conn: sqlite3.Connection, agencies: list[Agency]) -> ImportS
             conn, host, organization, level=agency.level, state=state, suborganization=suborganization,
             source="agency", domain_type="Agency website",
         )  # fmt: skip
+    stats.removed_sites = db.remove_sites(
+        conn,
+        [r["domain"] for r in conn.execute("SELECT domain FROM sites WHERE source = 'agency'")
+         if not is_government_host(r["domain"])],
+    )  # fmt: skip
     conn.commit()
     return stats
 

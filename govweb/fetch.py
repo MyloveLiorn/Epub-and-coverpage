@@ -38,7 +38,9 @@ class FetchResult:
 class Fetcher:
     """One per crawled site. Not thread-safe; run one Fetcher per worker thread."""
 
-    def __init__(self, min_interval: float = 1.0, timeout: float = 20.0, max_bytes: int = 2_000_000):
+    def __init__(
+        self, min_interval: float = 1.0, timeout: tuple[float, float] = (10.0, 30.0), max_bytes: int = 2_000_000
+    ):
         self.min_interval = min_interval
         self.timeout = timeout
         self.max_bytes = max_bytes
@@ -47,7 +49,12 @@ class Fetcher:
         self._robots: dict[str, urllib.robotparser.RobotFileParser] = {}
         self.session = requests.Session()
         self.session.headers["User-Agent"] = USER_AGENT
-        retry = Retry(total=2, backoff_factor=1, status_forcelist=(429, 502, 503, 504), respect_retry_after_header=True)
+        # A site that doesn't accept connections won't within seconds either: fail fast on connect
+        # errors (timeout is (connect, read)), retry only on overload responses.
+        retry = Retry(
+            total=2, connect=0, backoff_factor=1, status_forcelist=(429, 502, 503, 504),
+            respect_retry_after_header=True,
+        )  # fmt: skip
         adapter = HTTPAdapter(max_retries=retry)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
