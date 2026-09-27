@@ -9,6 +9,8 @@ The pipeline has four steps:
 3. **Check the Amazon market.** Each book is searched on Amazon and gets a verdict (for example `open_gap`: nobody sells it yet, but books on the topic sell) and a 0–100 score.
 4. **Track.** Watched books and ASINs are snapshotted on every run. You're told when a competing edition appears, when the sales rank moves 20% or more, or when the price changes.
 
+A second tool in this repo, [`govweb`](#govweb-the-gov-website-map), maps the government's websites and finds the PDFs and ebooks they host. It will be merged into `govbooks` later.
+
 ## Install
 
 ```bash
@@ -97,6 +99,37 @@ Each book gets a `rights` value:
 
 `market check` and `report` include only the first two unless you pass `--any-rights`. This is a screening aid, not legal advice. Also, Kindle Direct Publishing accepts public-domain books only when you add something new (annotations, translation, illustrations, etc.). Read KDP's current public-domain content guidelines before publishing.
 
+## govweb: the .gov website map
+
+`govweb` maps every US government website and finds the publications hosted on them. It is separate from `govbooks` for now, with its own database (`govweb.db`). The two already share topics: `govweb docs --topic` reads them from `govbooks.toml`.
+
+1. **The map.** The [official .gov registry](https://github.com/cisagov/dotgov-data), published by CISA, lists about 16,800 domains with their type (federal, state, county, city, tribal, special district and more), owning organization and state. `govweb sync` loads it. The tree groups federal, interstate and tribal sites by organization, and all other levels by state first.
+2. **The crawl.** For each site, `govweb crawl` reads `robots.txt` and the sitemaps, then follows links from the home page. It crawls pages that look like publication listings first ("publications", "library", "reports", "handbooks" and so on). It records every linked PDF, EPUB, MOBI and Word document, using its link text as the title.
+3. **Sub-sites.** Many agencies live on subdomains (`water.ca.gov` under `ca.gov`, `ars.usda.gov` under `usda.gov`). A crawl stays on one host. Other hosts it finds are added to the map as sub-sites that inherit their parent's owner, and each can be crawled on its own.
+
+```bash
+govweb sync                                   # load the .gov registry
+govweb map --depth 1                          # levels and states / organizations, with counts
+govweb map --level federal --search agriculture
+govweb map --level federal --out federal.json # the tree as JSON
+govweb crawl usda.gov water.ca.gov            # specific sites (subdomains are fine)
+govweb crawl --level federal --limit 50       # the first 50 federal sites
+govweb docs --topic beekeeping                # documents matching a govbooks topic, best first
+govweb docs --level state --type pdf --out state-pdfs.csv
+govweb pages --domain usda.gov                # the publication listing pages it found
+```
+
+**Politeness:**
+- It identifies itself as `govweb/0.1` and obeys `robots.txt`, including crawl delays up to 10 seconds.
+- It waits at least 1 second between requests to the same host (`--delay`).
+- It fetches at most 100 pages per site (`--max-pages`) and only reads HTML pages, capped at 2 MB each. Documents are recorded but not downloaded.
+- Sites run in parallel (`--workers`, default 4), but each individual site is crawled one request at a time.
+- Sites crawled in the last 30 days are skipped (`--skip-recent-days`).
+
+At the defaults, a site takes 2 to 3 minutes. All 1,317 federal domains take about 12 hours with 4 workers.
+
+The registry has no personal data in the map: its security-contact email column is dropped on import.
+
 ## Development
 
 ```bash
@@ -109,6 +142,8 @@ The tests use recorded response shapes for every API, so they run offline.
 ## Layout
 
 ```
+govweb/            the .gov website map: registry.py, fetch.py (polite fetching), parse.py (HTML and
+                   sitemaps), classify.py, crawl.py, tree.py, db.py, cli.py
 govbooks/
   agencies/        federal_register.py, wikidata.py, index.py (name → office matching), tree helpers
   sources/         govinfo.py, internet_archive.py, open_library.py, google_books.py

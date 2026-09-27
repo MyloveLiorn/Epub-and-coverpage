@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "govbooks"
 version = "0.1.0"
-description = "Map US federal and state government agencies, find the books they publish on chosen topics, and check and track those books on Amazon."
+description = "Map US government agencies and .gov websites, find the books they publish on chosen topics, and check and track those books on Amazon."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["requests>=2.31"]
@@ -15,9 +15,10 @@ dev = ["pytest>=8"]
 
 [project.scripts]
 govbooks = "govbooks.cli:main"
+govweb = "govweb.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["govbooks*"]
+include = ["govbooks*", "govweb*"]
 
 [tool.setuptools.package-data]
 govbooks = ["example.toml"]
