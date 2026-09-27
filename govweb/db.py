@@ -294,6 +294,22 @@ def select_sites(
     return conn.execute(sql, params).fetchall()
 
 
+def select_subsites(
+    conn: sqlite3.Connection, parents: list[str], not_crawled_since: str | None = None
+) -> list[sqlite3.Row]:
+    """Sub-sites found under the given sites (history.army.mil under army.mil), never-crawled
+    ones first, then those crawled longest ago."""
+    if not parents:
+        return []
+    where = ["in_registry = 1", f"parent_domain IN ({', '.join('?' for _ in parents)})"]
+    params: list = list(parents)
+    if not_crawled_since:
+        where.append("(crawled_at IS NULL OR crawled_at < ?)")
+        params.append(not_crawled_since)
+    sql = f"SELECT * FROM sites WHERE {' AND '.join(where)} ORDER BY crawled_at IS NOT NULL, crawled_at, domain"
+    return conn.execute(sql, params).fetchall()
+
+
 def store_result(conn: sqlite3.Connection, result: SiteResult) -> int:
     """Save a crawl. Returns the number of new sub-sites it discovered.
 
@@ -394,13 +410,13 @@ def seed_urls(conn: sqlite3.Connection, domain: str, limit: int = 50) -> list[st
 # --- Amazon checks ------------------------------------------------------------------
 
 
-def documents_to_check(conn: sqlite3.Connection, older_than: str, limit: int) -> list[sqlite3.Row]:
+def documents_to_check(conn: sqlite3.Connection, older_than: str, limit: int = -1) -> list[sqlite3.Row]:
     """Book-like documents never checked on Amazon, or last checked before ``older_than``; newest first."""
     return conn.execute(
         """
         SELECT d.* FROM documents d LEFT JOIN amazon_checks a ON a.url = d.url
         WHERE d.book_score > 0 AND (a.url IS NULL OR a.checked_at < ?)
-        ORDER BY d.first_seen DESC LIMIT ?
+        ORDER BY d.first_seen DESC, d.book_score DESC LIMIT ?
         """,
         (older_than, limit),
     ).fetchall()

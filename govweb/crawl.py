@@ -1,8 +1,8 @@
 """Crawling one website for publication pages and documents.
 
 The crawl reads the site's sitemaps first, then follows links from the home page. Pages
-that look like publication listings are fetched first, so a capped crawl spends its page
-budget where books and reports are likely to be.
+that look like publication listings, or that mention one of the searched topics, are fetched
+first, so a capped crawl spends its page budget where the wanted books are likely to be.
 """
 
 from __future__ import annotations
@@ -20,6 +20,8 @@ from govweb.classify import (
     hint_score,
     same_site,
     title_from_url,
+    topic_phrases,
+    topic_score,
 )
 from govweb.fetch import HTML_TYPES, FetchResult
 from govweb.parse import MAX_SITEMAP_BYTES, parse_html, parse_sitemap
@@ -31,6 +33,8 @@ SKIP_EXTENSIONS = (
     ".exe", ".dmg", ".kml", ".kmz", ".ics",
 )  # fmt: skip
 DOCUMENT_CONTENT_TYPES = {"application/pdf": "pdf", "application/epub+zip": "epub"}
+# A link that names a searched topic outranks one that only looks like a publication list.
+TOPIC_WEIGHT = 3
 
 
 class FetcherLike(Protocol):
@@ -47,6 +51,9 @@ class CrawlLimits:
     max_depth: int = 3
     max_sitemap_files: int = 10
     use_sitemaps: bool = True
+    # Words or phrases of the searched topics ("beekeeping", "first aid"): links mentioning
+    # them are followed first.
+    topic_keywords: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -132,6 +139,10 @@ class _Crawl:
         self.seen: set[str] = set()
         self.fetches = 0
         self.counter = itertools.count()
+        self.phrases = topic_phrases(limits.topic_keywords)
+
+    def priority(self, url: str, text: str) -> int:
+        return hint_score(url, text) + TOPIC_WEIGHT * topic_score(url, text, self.phrases)
 
     def add_document(self, url: str, title: str, kind: str, found_on: str, via: str) -> None:
         existing = self.result.documents.get(url)
@@ -154,7 +165,7 @@ class _Crawl:
         if url in self.seen or depth > self.limits.max_depth or path.endswith(SKIP_EXTENSIONS):
             return
         self.seen.add(url)
-        score = hint_score(url, text)
+        score = self.priority(url, text)
         # Most promising first; query-string pages (calendars, searches) last among equals.
         penalty = 1 if urlsplit(url).query else 0
         heapq.heappush(self.queue, (-score, depth + penalty, next(self.counter), depth, url, via))
@@ -176,8 +187,9 @@ class _Crawl:
             pending.extend(children)
             self.result.sitemap_urls += len(urls)
             for url in urls:
-                # Documents and publication-looking pages only; ordinary pages come via links.
-                if document_type(url) or hint_score(url) > 0:
+                # Documents, publication-looking pages and pages on a searched topic only;
+                # ordinary pages come via links.
+                if document_type(url) or self.priority(url, "") > 0:
                     self.add_link(url, "", 1, sitemap_url, "sitemap")
 
     def visit(self, url: str, depth: int, via: str, fetched: FetchResult | None = None) -> None:

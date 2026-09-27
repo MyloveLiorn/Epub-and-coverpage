@@ -40,6 +40,17 @@ def is_government_host(host: str) -> bool:
     return host.endswith((".gov", ".mil", ".fed.us")) or bool(_STATE_US_DOMAIN.search(host))
 
 
+def guess_owner(host: str) -> tuple[str, str | None]:
+    """(level, state) from the domain alone, for a site added by hand before its agency is known:
+    .mil and .fed.us are federal, dot.state.tx.us belongs to Texas."""
+    if host.endswith((".mil", ".fed.us")):
+        return "federal", None
+    match = _STATE_US_DOMAIN.search(host)
+    if match:
+        return "state", host[match.end() - 5 : match.end() - 3].upper()
+    return "other", None
+
+
 def _display_name(name: str, registry_names: dict[str, str]) -> str:
     """Use the registry's spelling where it names the same body: the Federal Register says
     "Agriculture Department", the registry "Department of Agriculture"."""
@@ -71,6 +82,7 @@ class ImportStats:
     new_sites: int = 0  # outside the registry: .mil, .us, ...
     new_subsites: int = 0  # subdomains of registry domains
     named_subsites: int = 0  # existing sub-sites given their agency's name
+    named_sites: int = 0  # sites added by hand, now given their agency's name
     not_government: int = 0  # websites outside government domains, not added
     removed_sites: int = 0  # earlier non-government agency sites taken off the map
 
@@ -100,12 +112,14 @@ def import_agencies(conn: sqlite3.Connection, agencies: list[Agency]) -> ImportS
             stats.not_government += 1
             continue
         existing = db.get_site(conn, host)
-        if existing is not None:
+        # A site added unnamed by "govweb crawl HOST" before the directories were read.
+        unnamed = existing is not None and existing["source"] == "manual" and existing["organization"] == host
+        if existing is not None and not unnamed:
             if existing["source"] == "subdomain" and existing["suborganization"] in (None, ""):
                 conn.execute("UPDATE sites SET suborganization = ? WHERE domain = ?", (agency.name, host))
                 stats.named_subsites += 1
             continue
-        parent = db.registered_domain_of(conn, host)
+        parent = db.registered_domain_of(conn, host) if existing is None else None
         if parent is not None:  # water.ca.gov under ca.gov
             stats.new_subsites += db.add_subsites(conn, parent, [host])
             conn.execute("UPDATE sites SET suborganization = ? WHERE domain = ?", (agency.name, host))
@@ -116,6 +130,19 @@ def import_agencies(conn: sqlite3.Connection, agencies: list[Agency]) -> ImportS
             suborganization = agency.name if top.id != agency.id else None
         else:
             organization, suborganization = agency.name, None
+        if unnamed:  # name it, and the sub-sites that inherited its placeholder name
+            conn.execute(
+                "UPDATE sites SET organization = ?, suborganization = ?, level = ?, state = ?, source = 'agency', "
+                "domain_type = 'Agency website' WHERE domain = ?",
+                (organization, suborganization, agency.level, state, host),
+            )
+            conn.execute(
+                "UPDATE sites SET organization = ?, suborganization = ?, level = ?, state = ? "
+                "WHERE parent_domain = ? AND organization = ?",
+                (organization, suborganization, agency.level, state, host, host),
+            )
+            stats.named_sites += 1
+            continue
         stats.new_sites += db.add_site(
             conn, host, organization, level=agency.level, state=state, suborganization=suborganization,
             source="agency", domain_type="Agency website",

@@ -1,4 +1,4 @@
-"""The results table: book-like documents with their publisher, copyright screening and Amazon status."""
+"""The results table: book-like documents with their topics, publisher, copyright screening and Amazon status."""
 
 from __future__ import annotations
 
@@ -7,10 +7,10 @@ import sqlite3
 from pathlib import Path
 
 from govweb.amazon import amazon_link, amazon_status
-from govweb.watch import rights_of
+from govweb.watch import Matcher, matching_topics, rights_of
 
 COLUMNS = [
-    "found", "new", "title", "type", "publisher", "level", "state", "website", "link", "rights",
+    "found", "new", "title", "topics", "type", "publisher", "level", "state", "website", "link", "rights",
     "on_amazon", "amazon_editions", "amazon_best_rank", "amazon_link", "book_score", "found_on", "rights_note",
 ]  # fmt: skip
 
@@ -23,7 +23,10 @@ def safe_cell(value: object) -> str:
     return text
 
 
-def result_rows(rows: list[sqlite3.Row], marketplace: str = "www.amazon.com") -> list[dict]:
+def result_rows(
+    rows: list[sqlite3.Row], marketplace: str = "www.amazon.com", topics: dict[str, Matcher] | None = None
+) -> list[dict]:
+    """One results row per document; ``topics`` names the topics each title matches."""
     out = []
     for row in rows:
         rights = rights_of(row)
@@ -32,6 +35,7 @@ def result_rows(rows: list[sqlite3.Row], marketplace: str = "www.amazon.com") ->
                 "found": row["first_seen"][:10],
                 "new": "yes" if row["first_crawled_at"] and row["first_seen"] > row["first_crawled_at"] else "",
                 "title": row["title"],
+                "topics": ", ".join(matching_topics(row, topics or {})),
                 "type": row["file_type"],
                 "publisher": row["suborganization"] or row["organization"],
                 "level": row["level"],
@@ -60,3 +64,23 @@ def write_csv(rows: list[dict], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as fh:
         csv.writer(fh).writerows(as_table(rows))
+
+
+def _md(value: object) -> str:
+    return " ".join(str(value).split()).replace("|", "\\|")
+
+
+def write_markdown(rows: list[dict], path: Path, heading: str, limit: int = 50) -> None:
+    """A short table for reading on a phone (the GitHub Actions run summary)."""
+    lines = [f"## {heading}", "", f"{len(rows)} book(s).", ""]
+    if rows:
+        lines += ["| Title | Topics | Publisher | Rights | On Amazon |", "|---|---|---|---|---|"]
+        for r in rows[:limit]:
+            title = _md(r["title"]).replace("[", "(").replace("]", ")")
+            link = r["link"].replace(" ", "%20").replace(")", "%29")
+            cells = [f"[{title}]({link})", _md(r["topics"]), _md(r["publisher"]), r["rights"], r["on_amazon"]]
+            lines.append("| " + " | ".join(cells) + " |")
+        if len(rows) > limit:
+            lines += ["", f"... and {len(rows) - limit} more in the CSV files."]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")

@@ -18,14 +18,23 @@ from govbooks import copyright_policy
 from govbooks.http import Http, HttpError
 from govbooks.states import STATE_ABBR, resolve_state
 from govweb import db
-from govweb.agencies import fetch_directory, import_agencies, remove_non_government_sites
+from govweb.agencies import fetch_directory, guess_owner, import_agencies, remove_non_government_sites
 from govweb.amazon import check_documents
+from govweb.classify import host_hint_score, topic_phrases
 from govweb.crawl import CrawlLimits, crawl_site
-from govweb.export import result_rows, write_csv
+from govweb.export import result_rows, write_csv, write_markdown
 from govweb.fetch import USER_AGENT, Fetcher
 from govweb.registry import LEVEL_NAMES, REGISTRY_URL, parse_registry
 from govweb.tree import build_tree, render, to_dict
-from govweb.watch import keyword_list, make_matcher, markdown_report, rank
+from govweb.watch import (
+    keyword_list,
+    make_matcher,
+    markdown_report,
+    matching_topics,
+    rank,
+    topic_keywords,
+    topic_matchers,
+)
 
 
 def say(message: str = "") -> None:
@@ -147,14 +156,19 @@ def _ensure_sites(conn: sqlite3.Connection, hosts: list[str]) -> None:
         parent = db.registered_domain_of(conn, host)
         if parent:
             db.add_subsites(conn, parent, [host])
-        else:
-            db.add_site(conn, host, organization=host)
-            say(f"{host} is not a known government site; added it (see: govweb add --help to name it).")
+            continue
+        level, state = guess_owner(host)
+        db.add_site(conn, host, organization=host, level=level, state=state)
+        known = "a known government site" if level == "other" else f"on the map yet ({level} by its domain)"
+        say(f"{host} is not {known}; added it (see: govweb add --help to name it).")
 
 
 def run_crawls(conn: sqlite3.Connection, sites: list[sqlite3.Row], args: argparse.Namespace) -> int:
     """Crawl sites in parallel and store the results. Re-crawls start from known listing pages."""
-    limits = CrawlLimits(max_pages=args.max_pages, max_depth=args.max_depth, use_sitemaps=not args.no_sitemaps)
+    limits = CrawlLimits(
+        max_pages=args.max_pages, max_depth=args.max_depth, use_sitemaps=not args.no_sitemaps,
+        topic_keywords=getattr(args, "crawl_keywords", None) or [],
+    )  # fmt: skip
     say(f"Crawling {len(sites)} site(s), up to {limits.max_pages} pages each, {args.workers} at a time...")
     new_documents = 0
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
@@ -193,14 +207,45 @@ def cmd_crawl(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     if not (args.domains or args.level or args.state or args.search or args.all):
         say("Choose what to crawl: domains, --level, --state, --search, or --all for every domain.")
         return 1
-    since = _since(args.skip_recent_days) if not args.domains and args.skip_recent_days else None
+    recent = _since(args.skip_recent_days) if args.skip_recent_days else None
     _ensure_sites(conn, args.domains)
-    sites = _selected(args, conn, not_crawled_since=since, limit=args.limit, rotation=True)
+    sites = _selected(args, conn, not_crawled_since=None if args.domains else recent, limit=args.limit,
+                      rotation=True)  # fmt: skip
     if not sites:
         say("Nothing to crawl.")
         return 1
+    args.crawl_keywords = _crawl_keywords(args)
+    if args.crawl_keywords:
+        say(f"Following links about: {', '.join(args.crawl_keywords)}")
     run_crawls(conn, sites, args)
+    if args.with_subsites:
+        subsites = _subsites_to_crawl(conn, [s["domain"] for s in sites], recent, args)
+        if subsites:
+            say(f"\nSub-sites: {', '.join(s['domain'] for s in subsites)}")
+            sub_args = argparse.Namespace(**{**vars(args), "max_pages": args.subsite_pages or args.max_pages})
+            run_crawls(conn, subsites, sub_args)
+        else:
+            say("No sub-sites due for a crawl.")
     return 0
+
+
+def _crawl_keywords(args: argparse.Namespace) -> list[str]:
+    """Keywords whose links a crawl follows first: --topic / --all-topics from govbooks.toml, and --keywords."""
+    names = args.topic or []
+    keywords = topic_keywords(args.config, names) if names or args.all_topics else []
+    return list(dict.fromkeys(keywords + keyword_list(args.keywords)))
+
+
+def _subsites_to_crawl(
+    conn: sqlite3.Connection, parents: list[str], recent: str | None, args: argparse.Namespace
+) -> list[sqlite3.Row]:
+    """The sub-sites of the crawled sites that are due, those whose names suggest publishers
+    (armypubs.army.mil, history.army.mil) or the searched topics first."""
+    phrases = topic_phrases(args.crawl_keywords)
+    subsites = db.select_subsites(conn, parents, not_crawled_since=recent)
+    subsites.sort(key=lambda s: (s["crawled_at"] is not None, -host_hint_score(s["domain"], phrases),
+                                 s["crawled_at"] or ""))  # fmt: skip
+    return subsites[: args.max_subsites]
 
 
 def cmd_add(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
@@ -283,7 +328,7 @@ def cmd_agencies_sync(args: argparse.Namespace, conn: sqlite3.Connection) -> int
     stats = import_agencies(conn, agencies)
     say(
         f"{stats.agencies} agencies, {stats.with_website} with a website: {stats.new_sites} new sites outside the "
-        f".gov registry, {stats.new_subsites} new sub-sites, {stats.named_subsites} sub-sites named, "
+        f".gov registry, {stats.new_subsites} new sub-sites, {stats.named_subsites + stats.named_sites} sites named, "
         f"{stats.not_government} skipped as not on a government domain"
         + (f", {stats.removed_sites} earlier non-government sites removed." if stats.removed_sites else ".")
     )
@@ -355,6 +400,10 @@ def cmd_watch_run(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
                 due.setdefault(site["domain"], site)
         sites = list(due.values())[: args.max_sites]
         if sites:
+            args.crawl_keywords = list(dict.fromkeys(
+                k for w in watches
+                for k in (topic_keywords(args.config, [w["topic"]]) if w["topic"] else keyword_list(w["keywords"]))
+            ))  # fmt: skip
             run_crawls(conn, sites, args)
         else:
             say("No sites due for a re-crawl (crawl sites first with govweb crawl, or lower --recrawl-days).")
@@ -398,7 +447,14 @@ def cmd_amazon(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
 
     config = load_config(args.config)
     provider = build_provider(args.provider or config.amazon_provider, make_json_http(), config)
-    docs = db.documents_to_check(conn, older_than=_since(args.recheck_days), limit=args.limit)
+    docs = db.documents_to_check(conn, older_than=_since(args.recheck_days))
+    topics = topic_matchers(args.config)
+    if topics:  # books on the searched topics first, then the rest, newest first
+        on_topic = {d["url"] for d in docs if matching_topics(d, topics)}
+        if args.topics_only:
+            docs = [d for d in docs if d["url"] in on_topic]
+        docs.sort(key=lambda d: d["url"] not in on_topic)
+    docs = docs[: args.limit]
     if not docs:
         say("Nothing to check: every book-like document was checked recently.")
         return 0
@@ -412,10 +468,16 @@ def cmd_export(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     rows = db.export_rows(
         conn, books_only=not args.all_documents, since=_since(args.days) if args.days else None, new_only=args.new_only
     )
-    results = result_rows(rows)
+    results = result_rows(rows, topics=topic_matchers(args.config))
     if args.reusable:
         results = [r for r in results if r["rights"] in copyright_policy.REUSABLE]
-    write_csv(results, args.out)
+    if args.topics_only:
+        results = [r for r in results if r["topics"]]
+    if args.out.suffix == ".md":
+        results.sort(key=lambda r: not r["topics"])  # stable: topic books first, each group newest first
+        write_markdown(results, args.out, args.heading or "Books found")
+    else:
+        write_csv(results, args.out)
     say(f"Wrote {len(results)} row(s) to {args.out}")
     return 0
 
@@ -576,6 +638,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, help="at most this many sites")
     _crawl_options(p)
     p.add_argument("--skip-recent-days", type=int, default=30, help="skip sites crawled in the last N days")
+    p.add_argument("--topic", action="append", help="follow links about this govbooks.toml topic first (repeatable)")
+    p.add_argument("--all-topics", action="store_true", help="follow links about any topic in govbooks.toml first")
+    p.add_argument("--keywords", help="comma-separated words or phrases whose links are followed first")
+    p.add_argument("--config", type=Path, help="govbooks config for topics (default: ./govbooks.toml)")
+    p.add_argument("--with-subsites", action="store_true",
+                   help="then crawl the sub-sites found under them (army.mil -> history.army.mil, ...)")
+    p.add_argument("--max-subsites", type=int, default=30, help="sub-sites crawled per run (default 30)")
+    p.add_argument("--subsite-pages", type=int, help="pages fetched per sub-site (default: --max-pages)")
     p.set_defaults(func=cmd_crawl)
 
     p = sub.add_parser("docs", help="documents found by crawling")
@@ -629,12 +699,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--provider", choices=["catalog", "keepa", "creators"], help="default: from govbooks.toml")
     p.add_argument("--limit", type=int, default=200, help="at most this many documents per run")
     p.add_argument("--recheck-days", type=int, default=30, help="re-check documents checked over N days ago")
-    p.add_argument("--config", type=Path, help="govbooks config (Amazon provider and marketplace)")
+    p.add_argument("--config", type=Path, help="govbooks config (Amazon provider, marketplace, topics)")
+    p.add_argument("--topics-only", action="store_true", help="only documents matching a topic (they go first anyway)")
     p.add_argument("--verbose", action="store_true", help="print each search")
     p.set_defaults(func=cmd_amazon)
 
-    p = sub.add_parser("export", help="write the results table (books, publisher, rights, Amazon status) as CSV")
-    p.add_argument("--out", type=Path, required=True)
+    p = sub.add_parser("export", help="write the results table (books, topics, publisher, rights, Amazon status)")
+    p.add_argument("--out", type=Path, required=True, help="a .csv file, or .md for a short readable table")
+    p.add_argument("--config", type=Path, help="govbooks config whose topics fill the topics column")
+    p.add_argument("--topics-only", action="store_true", help="only documents matching a topic")
+    p.add_argument("--heading", help="title of the .md table")
     p.add_argument("--days", type=int, help="only documents first found in the last N days")
     p.add_argument("--new-only", action="store_true", help="only documents that appeared after a site's first crawl")
     p.add_argument("--all-documents", action="store_true", help="include paperwork, not only book-like files")

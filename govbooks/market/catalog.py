@@ -1,4 +1,5 @@
-"""A no-key fallback: counts existing ISBN editions of a book in Google Books and Open Library.
+"""A no-key fallback: counts existing ISBN editions of a book in Open Library (and in Google
+Books too when a GOOGLE_BOOKS_API_KEY is set; without a key it runs out of quota within minutes).
 
 It cannot see Amazon sales ranks. A print book's ISBN-10 is also its Amazon ASIN, so each
 edition found here links straight to its Amazon page for a manual look.
@@ -22,7 +23,8 @@ class CatalogProvider:
     def __init__(self, http: Http, google_api_key: str | None = None, marketplace: str = "www.amazon.com"):
         self.http = http
         self.google = GoogleBooksSource(http, google_api_key)
-        self.google_blocked = False  # set when Google Books refuses (quota); Open Library carries on
+        # Set when Google Books isn't used: no key, or it refused (quota). Open Library carries on.
+        self.google_blocked = not google_api_key
         self.marketplace = marketplace
 
     def _google(self, q: str, limit: int) -> list[dict]:

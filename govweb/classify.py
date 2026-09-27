@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from urllib.parse import unquote, urlsplit
 
+from govbooks.text import contains_phrase, normalize_text
+
 DOCUMENT_TYPES = {".pdf": "pdf", ".epub": "epub", ".mobi": "mobi", ".azw3": "azw3", ".docx": "docx", ".doc": "doc"}
 
 # Words that mark a page as a list of publications worth crawling first.
@@ -40,6 +42,36 @@ def hint_score(url: str, text: str = "") -> int:
     words = _words(urlsplit(url).path) + _words(text)
     joined = f" {' '.join(words)} "
     return sum(1 for phrase in _HINT_PHRASES if f" {' '.join(phrase)} " in joined)
+
+
+def topic_phrases(keywords: list[str]) -> list[str]:
+    """Topic keywords in the normalized form topic_score matches against."""
+    return [p for p in (normalize_text(k) for k in keywords) if p]
+
+
+def topic_score(url: str, text: str, phrases: list[str]) -> int:
+    """How many topic keywords a link mentions, in its address or its text ("honey-bees" in a
+    URL matches the keyword "honey bee")."""
+    if not phrases:
+        return 0
+    haystack = normalize_text(f"{unquote(urlsplit(url).path)} {text}")
+    return sum(contains_phrase(haystack, p) for p in phrases)
+
+
+# Parts of a sub-site's name that suggest it publishes books: armypubs.army.mil,
+# history.army.mil, armyupress.army.mil, nal.usda.gov (National Agricultural Library).
+PUBLISHER_HOST_HINTS = ("pub", "histor", "librar", "press", "book", "manual", "doctrine", "museum", "heritage",
+                        "archive", "learn", "universit", "college", "school", "research")  # fmt: skip
+PUBLISHER_HOST_LABELS = {"nal", "nlm", "gpo", "apd"}
+
+
+def host_hint_score(host: str, phrases: list[str] | None = None) -> int:
+    """How strongly a sub-site's name suggests books: publisher words, then topic keywords."""
+    labels = host.lower().removeprefix("www.").split(".")[:-2]  # "armypubs.army.mil" -> ["armypubs"]
+    score = 2 * sum(1 for hint in PUBLISHER_HOST_HINTS if any(hint in label for label in labels))
+    score += 2 * sum(1 for label in labels if label in PUBLISHER_HOST_LABELS)
+    compact = "".join(labels).replace("-", "")
+    return score + sum(1 for p in phrases or [] if p.replace(" ", "") in compact)
 
 
 def title_from_url(url: str) -> str:

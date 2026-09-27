@@ -124,10 +124,16 @@ def test_catalog_provider_turns_isbns_into_asins(fake_http):
         {"title": TITLE, "isbn": ["0306406152"]},  # same edition as above
         {"title": TITLE + " (reprint)", "isbn": ["9780486453415"]},
     ]})  # fmt: skip
-    listings = CatalogProvider(fake_http).search(TITLE)
+    listings = CatalogProvider(fake_http, google_api_key="KEY").search(TITLE)
     assert [item.asin for item in listings] == ["0306406152", "0486453413"]
     assert listings[0].price == 7.99
     assert listings[0].url == "https://www.amazon.com/dp/0306406152"
+
+
+def test_catalog_provider_uses_only_open_library_without_a_google_key(fake_http):
+    fake_http.add("GET", "openlibrary.org/search.json", {"docs": [{"title": TITLE, "isbn": ["0306406152"]}]})
+    assert [item.asin for item in CatalogProvider(fake_http).search(TITLE)] == ["0306406152"]
+    assert not [c for c in fake_http.calls if "googleapis" in c[1]]
 
 
 def test_catalog_provider_carries_on_without_google_books(fake_http):
@@ -138,7 +144,7 @@ def test_catalog_provider_carries_on_without_google_books(fake_http):
 
     fake_http.add("GET", "googleapis.com/books", over_quota)
     fake_http.add("GET", "openlibrary.org/search.json", {"docs": [{"title": TITLE, "isbn": ["0306406152"]}]})
-    provider = CatalogProvider(fake_http)
+    provider = CatalogProvider(fake_http, google_api_key="KEY")
     assert [item.asin for item in provider.search(TITLE)] == ["0306406152"]
     provider.search(TITLE)
     google_calls = [c for c in fake_http.calls if "googleapis" in c[1]]

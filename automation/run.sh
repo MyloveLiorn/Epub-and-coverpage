@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
-# The weekly job: map the sites, crawl a batch of them, search the book catalogs, check Amazon,
-# and write the results tables. Run from the repository root. Every step runs even if an
-# earlier one fails; the script exits non-zero at the end if any step failed.
+# The weekly job: map the government websites, search the priority sites (army.mil, ...) and
+# their sub-sites in depth, crawl the next batch of federal and state sites, check Amazon, and
+# write the results tables. Crawls follow links about the topics in govbooks.toml first.
+# Run from the repository root. Every step runs even if an earlier one fails; the script exits
+# non-zero at the end if any step failed.
 set -uo pipefail
 
 DATA="${DATA_DIR:-data}"
 CONFIG="${GOVBOOKS_CONFIG:-automation/govbooks.toml}"
+PRIORITY_FILE="${PRIORITY_SITES_FILE:-automation/priority-sites.txt}"
+EXTRA_SITES="${EXTRA_SITES:-}"         # more sites to search in depth, this run only
+PRIORITY_PAGES="${PRIORITY_PAGES:-400}" # pages per priority site
+SUBSITES="${SUBSITES:-40}"              # sub-sites of the priority sites crawled per run
+SUBSITE_PAGES="${SUBSITE_PAGES:-120}"   # pages per sub-site
 FEDERAL_SITES="${FEDERAL_SITES:-150}"
 STATE_SITES="${STATE_SITES:-150}"
 AMAZON_CHECKS="${AMAZON_CHECKS:-300}"
@@ -15,6 +22,10 @@ if [ -z "${AMAZON_PROVIDER:-}" ]; then
 fi
 
 mkdir -p "$DATA"
+# Results of the book-catalog search (Internet Archive, Google Books, ...), which the weekly
+# run no longer does.
+rm -f "$DATA/catalog-books.csv" "$DATA/govbooks.db" "$DATA/govbooks.db.agencies-done"
+
 failed=()
 step() {
   echo "::group::$*"
@@ -31,45 +42,51 @@ step() {
 }
 
 web=(govweb --db "$DATA/govweb.db")
-books=(govbooks --config "$CONFIG" --db "$DATA/govbooks.db")
+topics=(--all-topics --config "$CONFIG")
 
-# The agency directories change slowly: refresh them in the first week of each month, or when
-# a database is new.
-refresh_agencies() { [ ! -f "$1" ] || [ "$(date -u +%-d)" -le 7 ]; }
-
-# 1. The map: the .gov registry and agency websites.
+# 1. The map: the .gov registry and agency websites. The agency directories change slowly:
+#    refresh them in the first week of each month, or when the database is new.
 step "${web[@]}" sync
-if refresh_agencies "$DATA/govweb.db.agencies-done"; then
+if [ ! -f "$DATA/govweb.db.agencies-done" ] || [ "$(date -u +%-d)" -le 7 ]; then
   step "${web[@]}" agencies sync && date -u +%F > "$DATA/govweb.db.agencies-done"
 fi
 
-# 2. Crawl the next batch of federal and state sites (sites crawled in the last 30 days wait).
-step "${web[@]}" crawl --level federal --limit "$FEDERAL_SITES" --max-pages 60 --workers 8
-step "${web[@]}" crawl --level state --limit "$STATE_SITES" --max-pages 60 --workers 8
-
-# 3. Search the book catalogs (GovInfo, Internet Archive, Open Library, Google Books) per topic.
-if refresh_agencies "$DATA/govbooks.db.agencies-done"; then
-  step "${books[@]}" agencies sync && date -u +%F > "$DATA/govbooks.db.agencies-done"
-fi
-topics=$(python -c "import sys, tomllib; print(' '.join(tomllib.load(open(sys.argv[1], 'rb'))['topics']))" "$CONFIG")
-for topic in $topics; do
-  step "${books[@]}" discover "$topic"
-  step "${books[@]}" market check --topic "$topic" --provider "$AMAZON_PROVIDER" --any-rights --limit 100
+# 2. The priority sites, in depth, with the next batch of their sub-sites.
+priority=()
+set -f  # a "*" in the list must not expand to file names
+for site in $(sed -e 's/#.*//' "$PRIORITY_FILE" 2>/dev/null) $EXTRA_SITES; do
+  if [[ "$site" =~ ^[A-Za-z0-9][A-Za-z0-9.:/_-]*$ ]]; then priority+=("$site"); else echo "Ignoring site '$site'"; fi
 done
+set +f
+if [ "${#priority[@]}" -gt 0 ]; then
+  step "${web[@]}" crawl "${priority[@]}" "${topics[@]}" --max-pages "$PRIORITY_PAGES" --max-depth 4 \
+    --with-subsites --max-subsites "$SUBSITES" --subsite-pages "$SUBSITE_PAGES" --workers 8
+fi
 
-# 4. Amazon check for books found on websites, then the results tables.
+# 3. The next batch of federal and state sites (sites crawled in the last 30 days wait).
+step "${web[@]}" crawl --level federal --limit "$FEDERAL_SITES" "${topics[@]}" --max-pages 60 --workers 8
+step "${web[@]}" crawl --level state --limit "$STATE_SITES" "${topics[@]}" --max-pages 60 --workers 8
+
+# 4. Amazon: is each book already sold there? Books on the topics are checked first.
 step "${web[@]}" amazon --provider "$AMAZON_PROVIDER" --limit "$AMAZON_CHECKS" --config "$CONFIG"
-step "${web[@]}" export --out "$DATA/new-books.csv" --new-only --days 8
-step "${web[@]}" export --out "$DATA/website-books.csv"
-step "${books[@]}" report --any-rights --out "$DATA/catalog-books.csv"
-step "${web[@]}" stats
 
-# 5. Google Sheet, when its secrets are set.
+# 5. The results tables.
+step "${web[@]}" export --config "$CONFIG" --out "$DATA/topic-books.csv" --topics-only
+step "${web[@]}" export --config "$CONFIG" --out "$DATA/new-books.csv" --new-only --days 8
+step "${web[@]}" export --config "$CONFIG" --out "$DATA/website-books.csv"
+step "${web[@]}" export --config "$CONFIG" --out "$DATA/last-run.md" --days 1 \
+  --heading "Books found in this run (topic books first)"
+step "${web[@]}" stats
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && [ -f "$DATA/last-run.md" ]; then
+  cat "$DATA/last-run.md" >> "$GITHUB_STEP_SUMMARY"
+fi
+
+# 6. Google Sheet, when its secrets are set.
 if [ -n "${GOOGLE_SERVICE_ACCOUNT_JSON:-}" ] && [ -n "${GOOGLE_SHEET_ID:-}" ]; then
   step "${web[@]}" sheet \
+    --tab "Topic books=$DATA/topic-books.csv" \
     --tab "New books=$DATA/new-books.csv" \
-    --tab "Website books=$DATA/website-books.csv" \
-    --tab "Catalog books=$DATA/catalog-books.csv"
+    --tab "Website books=$DATA/website-books.csv"
 fi
 
 if [ "${#failed[@]}" -gt 0 ]; then
