@@ -29,7 +29,7 @@ class Config:
     max_results: int = 100
     govinfo_collections: list[str] = field(default_factory=lambda: ["GPO", "CPRT", "GAOREPORTS", "ERP"])
     internet_archive_collections: list[str] = field(
-        default_factory=lambda: ["usgovernmentdocuments", "fedlink"]
+        default_factory=lambda: ["USGovernmentDocuments", "fedlink"]
     )
     states: list[str] = field(default_factory=list)  # empty means all 50
     amazon_provider: str = "catalog"

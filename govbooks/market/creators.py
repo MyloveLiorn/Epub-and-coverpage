@@ -1,9 +1,10 @@
 """Amazon Creators API, which replaced the Product Advertising API (PA-API 5.0) in 2026.
 
-Needs Amazon Associates credentials: AMAZON_CREATORS_CREDENTIAL_ID,
-AMAZON_CREATORS_CREDENTIAL_SECRET and AMAZON_PARTNER_TAG. Older (v2) credentials use a
-different token endpoint and scope; set AMAZON_CREATORS_TOKEN_URL and
-AMAZON_CREATORS_SCOPE to the values shown in Associates Central.
+Needs Amazon Associates credentials (version 3.x, "Login with Amazon"):
+AMAZON_CREATORS_CREDENTIAL_ID, AMAZON_CREATORS_CREDENTIAL_SECRET and AMAZON_PARTNER_TAG.
+The older 2.x (Cognito) credentials stopped working on 11 September 2026. The token
+endpoint follows the marketplace's region; AMAZON_CREATORS_TOKEN_URL and
+AMAZON_CREATORS_SCOPE override it if Associates Central shows different values.
 """
 
 from __future__ import annotations
@@ -16,7 +17,15 @@ from govbooks.market.base import ProviderError
 from govbooks.models import Listing
 
 API = "https://creatorsapi.amazon/catalog/v1"
-DEFAULT_TOKEN_URL = "https://api.amazon.com/auth/o2/token"
+# Login with Amazon token endpoints by region.
+TOKEN_URLS = {
+    "NA": "https://api.amazon.com/auth/o2/token",
+    "EU": "https://api.amazon.co.uk/auth/o2/token",
+    "FE": "https://api.amazon.co.jp/auth/o2/token",
+}
+NA_MARKETPLACES = {"www.amazon.com", "www.amazon.ca", "www.amazon.com.mx", "www.amazon.com.br"}
+FE_MARKETPLACES = {"www.amazon.co.jp", "www.amazon.com.au", "www.amazon.sg"}
+DEFAULT_TOKEN_URL = TOKEN_URLS["NA"]
 DEFAULT_SCOPE = "creatorsapi::default"
 RESOURCES = [
     "itemInfo.title",
@@ -39,6 +48,20 @@ def dig(obj: Any, *path: str) -> Any:
         wanted = key.lower()
         obj = next((v for k, v in obj.items() if k.lower() == wanted), None)
     return obj
+
+
+def token_url_for(marketplace: str) -> str:
+    if marketplace in NA_MARKETPLACES:
+        return TOKEN_URLS["NA"]
+    if marketplace in FE_MARKETPLACES:
+        return TOKEN_URLS["FE"]
+    return TOKEN_URLS["EU"]
+
+
+def _items(data: dict, wrapper: str) -> list:
+    """Items sit under searchResult/itemsResult; accept them at the top level too."""
+    items = dig(data, wrapper, "items") if dig(data, wrapper) else dig(data, "items")
+    return items if isinstance(items, list) else []
 
 
 class CreatorsProvider:
@@ -86,7 +109,13 @@ class CreatorsProvider:
     def _call(self, operation: str, body: dict) -> dict:
         data = self.http.post_json(
             f"{API}/{operation}",
-            json={"partnerTag": self.partner_tag, "marketplace": self.marketplace, "resources": RESOURCES, **body},
+            json={
+                "partnerTag": self.partner_tag,
+                "partnerType": "Associates",
+                "marketplace": self.marketplace,
+                "resources": RESOURCES,
+                **body,
+            },
             headers={
                 "Authorization": f"Bearer {self._access_token()}",
                 "x-marketplace": self.marketplace,
@@ -94,7 +123,7 @@ class CreatorsProvider:
             },
         )
         errors = dig(data, "errors")
-        if errors and not (dig(data, "searchResult") or dig(data, "itemsResult")):
+        if errors and not (dig(data, "searchResult") or dig(data, "itemsResult") or dig(data, "items")):
             first = errors[0] if isinstance(errors, list) and errors else errors
             # Amazon answers "no results" with an error object rather than an empty list.
             if "noresults" in str(dig(first, "code") or "").lower():
@@ -107,18 +136,14 @@ class CreatorsProvider:
             "searchItems",
             {"keywords": query, "searchIndex": "Books", "itemCount": min(MAX_ITEMS_PER_CALL, limit)},
         )
-        items = dig(data, "searchResult")
-        items = dig(items, "items") if items else None
-        return [item for item in (parse_item(i, self.marketplace) for i in items or []) if item]
+        return [item for item in (parse_item(i, self.marketplace) for i in _items(data, "searchResult")) if item]
 
     def lookup(self, asins: list[str]) -> list[Listing]:
         result = []
         for start in range(0, len(asins), MAX_ITEMS_PER_CALL):
             chunk = asins[start : start + MAX_ITEMS_PER_CALL]
             data = self._call("getItems", {"itemIds": chunk, "itemIdType": "ASIN"})
-            items = dig(data, "itemsResult")
-            items = dig(items, "items") if items else None
-            result.extend(item for item in (parse_item(i, self.marketplace) for i in items or []) if item)
+            result.extend(item for item in (parse_item(i, self.marketplace) for i in _items(data, "itemsResult")) if item)
         return result
 
 

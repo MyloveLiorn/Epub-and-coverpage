@@ -1,4 +1,8 @@
-"""Internet Archive: scanned federal and state documents with downloadable full text."""
+"""Internet Archive: scanned federal and state documents with downloadable full text.
+
+Collection identifiers are case-sensitive: "USGovernmentDocuments" and "fedlink"
+(FEDLINK - United States Federal Collection) by default.
+"""
 
 from __future__ import annotations
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from govbooks.http import Http
 from govbooks.models import Agency
 
-AGENCIES_URL = "https://www.federalregister.gov/api/v1/agencies"
+AGENCIES_URL = "https://www.federalregister.gov/api/v1/agencies.json"
 FEDERAL_ROOT_ID = "us:federal"
 
 

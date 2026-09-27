@@ -62,7 +62,7 @@ Choose a provider with `[amazon] provider = ...` in the config or `--provider`:
 |---|---|---|---|
 | `catalog` (default) | nothing | no | Counts existing ISBN editions in Google Books and Open Library. A print book's ISBN-10 is its Amazon ASIN, so every edition links to its Amazon page. |
 | `keepa` | `KEEPA_API_KEY` (paid) | yes | [Keepa](https://keepa.com/#!api) data: sales rank and price, the best fit for tracking. |
-| `creators` | `AMAZON_CREATORS_CREDENTIAL_ID`, `AMAZON_CREATORS_CREDENTIAL_SECRET`, `AMAZON_PARTNER_TAG` | yes | Amazon's [Creators API](https://affiliate-program.amazon.com/creatorsapi/docs/en-us/introduction), which replaced PA-API 5.0 in 2026. Requires an Amazon Associates account. |
+| `creators` | `AMAZON_CREATORS_CREDENTIAL_ID`, `AMAZON_CREATORS_CREDENTIAL_SECRET`, `AMAZON_PARTNER_TAG` | yes | Amazon's [Creators API](https://affiliate-program.amazon.com/creatorsapi/docs/en-us/introduction), which replaced PA-API 5.0 in 2026. Requires an Amazon Associates account and version 3.x credentials (2.x credentials stopped working on 11 September 2026). |
 
 Nothing here scrapes Amazon's website; that's against Amazon's terms.
 

@@ -16,7 +16,7 @@ states = []
 enabled = ["govinfo", "internet_archive", "open_library", "google_books"]
 max_results_per_query = 100
 govinfo_collections = ["GPO", "CPRT", "GAOREPORTS", "ERP"]
-internet_archive_collections = ["usgovernmentdocuments", "fedlink"]
+internet_archive_collections = ["USGovernmentDocuments", "fedlink"]
 
 [amazon]
 # "catalog" needs no keys but cannot see sales ranks; "keepa" or "creators" can.

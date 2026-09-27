@@ -96,6 +96,18 @@ def test_creators_token_is_cached_and_sent(fake_http):
     assert kwargs["json"]["searchIndex"] == "Books"
 
 
+def test_creators_items_without_wrapper_and_regional_token(fake_http):
+    from govbooks.market.creators import token_url_for
+
+    fake_http.add("POST", "getItems", {"items": [{"asin": "B9", "itemInfo": {"title": {"displayValue": "T"}}}]})
+    fake_http.add("POST", "api.amazon.co.uk/auth/o2/token", {"access_token": "T"})
+    provider = CreatorsProvider(fake_http, "ID", "S", "tag", "www.amazon.de", token_url_for("www.amazon.de"))
+    assert [item.asin for item in provider.lookup(["B9"])] == ["B9"]
+    assert fake_http.calls[1][2]["json"]["itemIds"] == ["B9"]
+    assert token_url_for("www.amazon.co.jp").endswith("amazon.co.jp/auth/o2/token")
+    assert token_url_for("www.amazon.com").startswith("https://api.amazon.com/")
+
+
 def test_creators_no_results_is_not_an_error(fake_http):
     fake_http.add("POST", "token", {"access_token": "T"})
     fake_http.add("POST", "searchItems", {"errors": [{"code": "NoResults", "message": "none"}]})

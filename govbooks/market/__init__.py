@@ -48,7 +48,7 @@ def build_provider(name: str, http: Http, config: Config) -> MarketProvider:
             raise SystemExit("The keepa provider needs KEEPA_API_KEY in the environment.")
         return KeepaProvider(http, key, config.marketplace)
     if name == "creators":
-        from govbooks.market.creators import DEFAULT_SCOPE, DEFAULT_TOKEN_URL, CreatorsProvider
+        from govbooks.market.creators import DEFAULT_SCOPE, CreatorsProvider, token_url_for
 
         needed = ["AMAZON_CREATORS_CREDENTIAL_ID", "AMAZON_CREATORS_CREDENTIAL_SECRET", "AMAZON_PARTNER_TAG"]
         missing = [n for n in needed if not env(n)]
@@ -60,7 +60,7 @@ def build_provider(name: str, http: Http, config: Config) -> MarketProvider:
             env("AMAZON_CREATORS_CREDENTIAL_SECRET"),
             env("AMAZON_PARTNER_TAG"),
             config.marketplace,
-            env("AMAZON_CREATORS_TOKEN_URL", DEFAULT_TOKEN_URL),
+            env("AMAZON_CREATORS_TOKEN_URL", token_url_for(config.marketplace)),
             env("AMAZON_CREATORS_SCOPE", DEFAULT_SCOPE),
         )
     raise SystemExit(f"Unknown Amazon provider {name!r}. Choose one of: {', '.join(PROVIDERS)}")
