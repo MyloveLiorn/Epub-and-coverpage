@@ -1,0 +1,43 @@
+# Settings for the weekly GitHub Actions run (.github/workflows/find-books.yml).
+# Edit the [topics] section to change what is searched for.
+# API keys are read from environment variables, never from this file:
+#   GOVINFO_API_KEY       free from https://api.data.gov/signup (DEMO_KEY is used if unset)
+#   GOOGLE_BOOKS_API_KEY  optional, but without it Google Books rate-limits quickly
+#   KEEPA_API_KEY         for the "keepa" Amazon provider (paid, https://keepa.com/#!api)
+#   AMAZON_CREATORS_CREDENTIAL_ID, AMAZON_CREATORS_CREDENTIAL_SECRET, AMAZON_PARTNER_TAG
+#                         for the "creators" Amazon provider (Amazon Associates Creators API)
+
+database = "../data/govbooks.db"
+
+[agencies]
+# States to include when mapping state agencies. Empty means all 50.
+states = []
+
+[sources]
+enabled = ["govinfo", "internet_archive", "open_library", "google_books"]
+max_results_per_query = 100
+govinfo_collections = ["GPO", "CPRT", "GAOREPORTS", "ERP"]
+internet_archive_collections = ["USGovernmentDocuments", "fedlink"]
+
+[amazon]
+# "catalog" needs no keys but cannot see sales ranks; "keepa" or "creators" can.
+provider = "catalog"
+marketplace = "www.amazon.com"
+
+# Topics. A keyword hit scores 3 in the title, 2 in the subjects and 1 in the description.
+# A book is kept when its score reaches min_score. Any "exclude" hit drops the book.
+
+[topics.beekeeping]
+keywords = ["beekeeping", "honey bee", "apiculture", "beehive", "honey production"]
+exclude = []
+min_score = 3
+
+[topics.food_preservation]
+keywords = ["home canning", "food preservation", "canning", "pickling", "drying fruits", "curing meat"]
+exclude = ["canning industry", "cannery workers"]
+min_score = 3
+
+[topics.survival]
+keywords = ["survival", "wilderness survival", "evasion", "emergency preparedness", "first aid"]
+exclude = ["survival rate", "survival analysis", "cancer survival"]
+min_score = 3
