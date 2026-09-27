@@ -157,6 +157,21 @@ def test_only_government_websites_are_trusted(conn):
     assert db.get_site(conn, "act.org") is None
 
 
+def test_registry_sync_removes_non_government_directory_sites(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "registry.csv").write_text(REGISTRY_CSV)
+    cli.main(["--db", "w.db", "sync", "--file", "registry.csv"])
+    conn = db.connect("w.db")
+    db.add_site(conn, "act.org", "ACTION", level="federal", source="agency")
+    db.add_subsites(conn, db.get_site(conn, "act.org"), ["my.act.org"])
+    db.add_site(conn, "club.example.org", "My club")  # added by hand: kept
+    conn.close()
+    cli.main(["--db", "w.db", "sync", "--file", "registry.csv"])
+    assert "Removed 1 agency-directory site(s)" in capsys.readouterr().out
+    conn = db.connect("w.db")
+    assert [db.get_site(conn, d) is None for d in ("act.org", "my.act.org", "club.example.org")] == [True, True, False]
+
+
 def test_crawl_rotation_order(conn):
     conn.execute("UPDATE sites SET crawled_at = '2026-01-01' WHERE domain = 'usda.gov'")
     conn.execute("UPDATE sites SET crawled_at = '2025-01-01' WHERE domain = 'recreation.gov'")

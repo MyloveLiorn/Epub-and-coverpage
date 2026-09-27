@@ -18,7 +18,7 @@ from govbooks import copyright_policy
 from govbooks.http import Http, HttpError
 from govbooks.states import STATE_ABBR, resolve_state
 from govweb import db
-from govweb.agencies import fetch_directory, import_agencies
+from govweb.agencies import fetch_directory, import_agencies, remove_non_government_sites
 from govweb.amazon import check_documents
 from govweb.crawl import CrawlLimits, crawl_site
 from govweb.export import result_rows, write_csv
@@ -80,6 +80,9 @@ def cmd_sync(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     sites = parse_registry(text)
     total, new = db.sync_sites(conn, sites)
     say(f"{total} domains in the registry ({new} new).")
+    removed = remove_non_government_sites(conn)
+    if removed:
+        say(f"Removed {removed} agency-directory site(s) that are not on a government domain.")
     return cmd_stats(args, conn)
 
 

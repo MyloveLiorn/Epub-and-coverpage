@@ -15,6 +15,17 @@ from govbooks import __version__
 USER_AGENT = f"govbooks/{__version__} (+https://github.com/MyloveLiorn/Epub-and-coverpage)"
 
 
+class CappedRetry(Retry):
+    """Retry that never sleeps longer than MAX_WAIT for a Retry-After header. A service that
+    answers "try again in an hour" (a used-up daily quota) must not stall a whole run."""
+
+    MAX_WAIT = 30.0
+
+    def get_retry_after(self, response: Any) -> float | None:
+        wait = super().get_retry_after(response)
+        return None if wait is None else min(wait, self.MAX_WAIT)
+
+
 class HttpError(RuntimeError):
     """A failed request: an error status, a network failure (status None) or a non-JSON reply."""
 
@@ -35,10 +46,12 @@ class Http:
         self._last_call: dict[str, float] = {}
         self.session = requests.Session()
         self.session.headers["User-Agent"] = USER_AGENT
-        retry = Retry(
+        # 429 is not retried: from these APIs it means a quota is used up for hours, and the
+        # callers skip a source that keeps refusing.
+        retry = CappedRetry(
             total=4,
             backoff_factor=2,
-            status_forcelist=(429, 500, 502, 503, 504),
+            status_forcelist=(500, 502, 503, 504),
             allowed_methods=None,
             respect_retry_after_header=True,
             raise_on_status=False,

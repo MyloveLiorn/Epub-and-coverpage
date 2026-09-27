@@ -9,8 +9,8 @@ from urllib.parse import urlsplit
 
 import requests
 from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
+from govbooks.http import CappedRetry
 from govweb import __version__
 
 USER_AGENT = f"govweb/{__version__} (+https://github.com/MyloveLiorn/Epub-and-coverpage)"
@@ -51,7 +51,7 @@ class Fetcher:
         self.session.headers["User-Agent"] = USER_AGENT
         # A site that doesn't accept connections won't within seconds either: fail fast on connect
         # errors (timeout is (connect, read)), retry only on overload responses.
-        retry = Retry(
+        retry = CappedRetry(
             total=2, connect=0, backoff_factor=1, status_forcelist=(429, 502, 503, 504),
             respect_retry_after_header=True,
         )  # fmt: skip

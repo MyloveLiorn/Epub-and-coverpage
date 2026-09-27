@@ -9,6 +9,7 @@ CONFIG="${GOVBOOKS_CONFIG:-automation/govbooks.toml}"
 FEDERAL_SITES="${FEDERAL_SITES:-150}"
 STATE_SITES="${STATE_SITES:-150}"
 AMAZON_CHECKS="${AMAZON_CHECKS:-300}"
+STEP_TIMEOUT="${STEP_TIMEOUT:-45m}"  # no single step may hang the run
 if [ -z "${AMAZON_PROVIDER:-}" ]; then
   if [ -n "${KEEPA_API_KEY:-}" ]; then AMAZON_PROVIDER=keepa; else AMAZON_PROVIDER=catalog; fi
 fi
@@ -17,26 +18,39 @@ mkdir -p "$DATA"
 failed=()
 step() {
   echo "::group::$*"
-  if ! "$@"; then
-    echo "::warning::Step failed: $*"
+  local rc=0
+  timeout "$STEP_TIMEOUT" "$@" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    local why="exit $rc"
+    [ "$rc" -eq 124 ] && why="timed out after $STEP_TIMEOUT"
+    echo "::warning::Step failed ($why): $*"
     failed+=("$*")
   fi
   echo "::endgroup::"
+  return "$rc"
 }
 
 web=(govweb --db "$DATA/govweb.db")
 books=(govbooks --config "$CONFIG" --db "$DATA/govbooks.db")
 
+# The agency directories change slowly: refresh them in the first week of each month, or when
+# a database is new.
+refresh_agencies() { [ ! -f "$1" ] || [ "$(date -u +%-d)" -le 7 ]; }
+
 # 1. The map: the .gov registry and agency websites.
 step "${web[@]}" sync
-step "${web[@]}" agencies sync
+if refresh_agencies "$DATA/govweb.db.agencies-done"; then
+  step "${web[@]}" agencies sync && date -u +%F > "$DATA/govweb.db.agencies-done"
+fi
 
 # 2. Crawl the next batch of federal and state sites (sites crawled in the last 30 days wait).
 step "${web[@]}" crawl --level federal --limit "$FEDERAL_SITES" --max-pages 60 --workers 8
 step "${web[@]}" crawl --level state --limit "$STATE_SITES" --max-pages 60 --workers 8
 
 # 3. Search the book catalogs (GovInfo, Internet Archive, Open Library, Google Books) per topic.
-step "${books[@]}" agencies sync
+if refresh_agencies "$DATA/govbooks.db.agencies-done"; then
+  step "${books[@]}" agencies sync && date -u +%F > "$DATA/govbooks.db.agencies-done"
+fi
 topics=$(python -c "import sys, tomllib; print(' '.join(tomllib.load(open(sys.argv[1], 'rb'))['topics']))" "$CONFIG")
 for topic in $topics; do
   step "${books[@]}" discover "$topic"

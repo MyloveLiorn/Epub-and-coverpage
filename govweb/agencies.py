@@ -120,13 +120,19 @@ def import_agencies(conn: sqlite3.Connection, agencies: list[Agency]) -> ImportS
             conn, host, organization, level=agency.level, state=state, suborganization=suborganization,
             source="agency", domain_type="Agency website",
         )  # fmt: skip
-    stats.removed_sites = db.remove_sites(
+    stats.removed_sites = remove_non_government_sites(conn)
+    conn.commit()
+    return stats
+
+
+def remove_non_government_sites(conn: sqlite3.Connection) -> int:
+    """Take agency-directory sites that aren't on a government domain off the map (with their
+    sub-sites and documents). Sites added by hand are left alone."""
+    return db.remove_sites(
         conn,
         [r["domain"] for r in conn.execute("SELECT domain FROM sites WHERE source = 'agency'")
          if not is_government_host(r["domain"])],
     )  # fmt: skip
-    conn.commit()
-    return stats
 
 
 def fetch_directory(http: Http, federal: bool = True, states: list[str] | None = None, progress=None) -> list[Agency]:
