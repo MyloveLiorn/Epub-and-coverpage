@@ -1,0 +1,84 @@
+name: Find government books
+
+# Weekly: map federal and state government websites, crawl the next batch, search the book
+# catalogs, check Amazon, and save the results (CSV tables and databases) to the "data" branch.
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  workflow_dispatch:
+    inputs:
+      federal_sites:
+        description: Federal sites to crawl this run
+        default: "150"
+      state_sites:
+        description: State sites to crawl this run
+        default: "150"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: find-books
+  cancel-in-progress: false
+
+jobs:
+  find-books:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install ".[sheets]"
+
+      - name: Restore previous results from the data branch
+        run: |
+          mkdir -p data
+          if git ls-remote --exit-code --heads origin data >/dev/null; then
+            git fetch --depth=1 origin data
+            git archive origin/data | tar -x -C data
+            for f in data/*.db.gz; do [ -e "$f" ] && gunzip -f "$f"; done
+          fi
+          ls -la data
+
+      - name: Run
+        env:
+          FEDERAL_SITES: ${{ inputs.federal_sites || '150' }}
+          STATE_SITES: ${{ inputs.state_sites || '150' }}
+          GOVINFO_API_KEY: ${{ secrets.GOVINFO_API_KEY }}
+          GOOGLE_BOOKS_API_KEY: ${{ secrets.GOOGLE_BOOKS_API_KEY }}
+          KEEPA_API_KEY: ${{ secrets.KEEPA_API_KEY }}
+          AMAZON_CREATORS_CREDENTIAL_ID: ${{ secrets.AMAZON_CREATORS_CREDENTIAL_ID }}
+          AMAZON_CREATORS_CREDENTIAL_SECRET: ${{ secrets.AMAZON_CREATORS_CREDENTIAL_SECRET }}
+          AMAZON_PARTNER_TAG: ${{ secrets.AMAZON_PARTNER_TAG }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+        run: automation/run.sh
+
+      - name: Save results to the data branch
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd data
+          gzip -9 -f ./*.db 2>/dev/null || true
+          cat > README.md <<EOF
+          # Results of the weekly run
+
+          Updated $(date -u '+%Y-%m-%d %H:%M UTC') by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+
+          - new-books.csv: books that appeared on government websites in the last week
+          - website-books.csv: every book-like document found on the websites
+          - catalog-books.csv: books found in GovInfo, Internet Archive, Open Library and Google Books
+          - *.db.gz: the databases the next run continues from
+          EOF
+          git init -q -b data
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Results $(date -u +%F)"
+          # One commit, replaced each week, so the repository doesn't grow with every run.
+          git push -q -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" data

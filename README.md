@@ -145,6 +145,8 @@ govweb crawl --state CA --level state          # California state sites
 govweb crawl https://www.army.mil              # any site
 govweb docs --topic beekeeping --books-only --reusable
 govweb new --days 7 --books-only               # what appeared on re-crawls this week
+govweb amazon                                  # is each book already on Amazon?
+govweb export --out books.csv                  # the results table (also: --new-only --days 7)
 
 govweb watch add bees --topic beekeeping --level federal
 govweb watch add ca-guides --keywords "field guide, handbook" --state CA
@@ -163,6 +165,51 @@ At the defaults, a site takes 2 to 3 minutes. All 1,317 federal domains take abo
 
 The map holds no personal data: the registry's security-contact email column is dropped on import.
 
+## Running it online (no PC needed)
+
+The workflow `.github/workflows/find-books.yml` runs `automation/run.sh` every Monday on GitHub's servers, and can also be started by hand. Each run:
+
+1. Refreshes the map: the .gov registry and the federal and state agency websites.
+2. Crawls the next 150 federal and 150 state sites not crawled in the last 30 days, so the whole map is covered over a few weeks.
+3. Searches the book catalogs for each topic in `automation/govbooks.toml`.
+4. Checks whether each book is already on Amazon. Without keys it uses the free catalog check; it uses Keepa automatically once `KEEPA_API_KEY` is set.
+5. Saves the results to the `data` branch:
+   - `new-books.csv`: books that appeared on government websites this week
+   - `website-books.csv`: every book found on the websites
+   - `catalog-books.csv`: books found in the catalogs
+   - the databases the next run continues from
+6. Fills the Google Sheet, if one is set up.
+
+Each results row gives the title, publisher, level and state, the link, the copyright screening, and whether it's on Amazon (`yes`, `no`, `not found` or `not checked`) with a link.
+
+**Start a run by hand:** open the repo on GitHub, then **Actions** → **Find government books** → **Run workflow**. You can set how many sites to crawl.
+
+**Change the topics:** edit `automation/govbooks.toml`.
+
+**Keys** go under **Settings** → **Secrets and variables** → **Actions**. All are optional:
+
+| Secret | What it adds |
+|---|---|
+| `GOVINFO_API_KEY` | Higher GovInfo limits (free at api.data.gov) |
+| `GOOGLE_BOOKS_API_KEY` | Higher Google Books limits |
+| `KEEPA_API_KEY` | Real Amazon results with sales rank (paid) |
+| `AMAZON_CREATORS_CREDENTIAL_ID`, `AMAZON_CREATORS_CREDENTIAL_SECRET`, `AMAZON_PARTNER_TAG` | Amazon Creators API instead of Keepa |
+| `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SHEET_ID` | Writes the results into a Google Sheet |
+
+**Google Sheet setup (once):**
+1. In [Google Cloud Console](https://console.cloud.google.com/), create a project and enable the **Google Sheets API**.
+2. Create a **service account** and download a JSON key for it.
+3. Create a Google Sheet and share it with the service account's email address as an **Editor**.
+4. Add two secrets:
+   - `GOOGLE_SERVICE_ACCOUNT_JSON`: the whole contents of the JSON key file.
+   - `GOOGLE_SHEET_ID`: the long id in the sheet's web address, between `/d/` and `/edit`.
+
+Each run then replaces three tabs: **New books**, **Website books** and **Catalog books**. Cells are written as plain text, so nothing from a website can run as a formula.
+
+This repository is public, so the `data` branch is public too. It holds only public information about government books; keys stay private in the secrets.
+
+The same steps work on a PC: `automation/run.sh` from the repository root, after `pip install -e ".[sheets]"`.
+
 ## Development
 
 ```bash
@@ -177,7 +224,10 @@ The tests use recorded response shapes for every API, so they run offline.
 ```
 govweb/            the government website map: registry.py (.gov list), agencies.py (agency websites),
                    fetch.py (polite fetching), parse.py (HTML and sitemaps), classify.py (documents,
-                   book-likeness), crawl.py, watch.py (new-book watches), tree.py, db.py, cli.py
+                   book-likeness), crawl.py, watch.py (new-book watches), amazon.py, export.py
+                   (results table), sheets.py (Google Sheets), tree.py, db.py, cli.py
+automation/        run.sh (the weekly job) and govbooks.toml (its topics)
+.github/workflows/ find-books.yml (runs the weekly job on GitHub)
 govbooks/
   copyright_policy.py  federal rule and exceptions, state policies (data/state_copyright.json)
   agencies/        federal_register.py, wikidata.py, index.py (name → office matching), tree helpers

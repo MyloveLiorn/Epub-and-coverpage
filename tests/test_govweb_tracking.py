@@ -80,6 +80,7 @@ def test_book_score():
     assert book_score("Board meeting agenda and minutes", "https://x.gov/a.pdf") < 0
     assert book_score("Building permit application form", "https://x.gov/a.pdf") < 0
     assert book_score("Untitled", "https://x.gov/doc1.pdf") == 0
+    assert book_score("Beekeeping in the United States", "https://x.gov/b.pdf") > 0  # a plain book title
 
 
 def test_old_databases_are_upgraded(tmp_path):

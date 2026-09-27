@@ -19,7 +19,9 @@ from govbooks.http import Http, HttpError
 from govbooks.states import STATE_ABBR, resolve_state
 from govweb import db
 from govweb.agencies import fetch_directory, import_agencies
+from govweb.amazon import check_documents
 from govweb.crawl import CrawlLimits, crawl_site
+from govweb.export import result_rows, write_csv
 from govweb.fetch import USER_AGENT, Fetcher
 from govweb.registry import LEVEL_NAMES, REGISTRY_URL, parse_registry
 from govweb.tree import build_tree, render, to_dict
@@ -382,6 +384,63 @@ def cmd_watch_run(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     return 0
 
 
+# --- Amazon, results export, Google Sheets ---------------------------------------------
+
+
+def cmd_amazon(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
+    from govbooks.config import load_config
+    from govbooks.market import build_provider
+
+    config = load_config(args.config)
+    provider = build_provider(args.provider or config.amazon_provider, make_json_http(), config)
+    docs = db.documents_to_check(conn, older_than=_since(args.recheck_days), limit=args.limit)
+    if not docs:
+        say("Nothing to check: every book-like document was checked recently.")
+        return 0
+    say(f"Checking {len(docs)} book-like document(s) on Amazon with {provider.name}...")
+    checked, found = check_documents(conn, provider, docs, progress=say if args.verbose else None)
+    say(f"Checked {checked}: {found} already on Amazon, {checked - found} not found.")
+    return 0
+
+
+def cmd_export(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
+    rows = db.export_rows(
+        conn, books_only=not args.all_documents, since=_since(args.days) if args.days else None, new_only=args.new_only
+    )
+    results = result_rows(rows)
+    if args.reusable:
+        results = [r for r in results if r["rights"] in copyright_policy.REUSABLE]
+    write_csv(results, args.out)
+    say(f"Wrote {len(results)} row(s) to {args.out}")
+    return 0
+
+
+def cmd_sheet(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
+    import os
+
+    from govweb.sheets import SheetsError, authorized_session, read_csv, upload
+
+    credentials = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    sheet_id = args.sheet_id or os.environ.get("GOOGLE_SHEET_ID", "").strip()
+    if not credentials or not sheet_id:
+        say("Needs GOOGLE_SERVICE_ACCOUNT_JSON in the environment and --sheet-id (or GOOGLE_SHEET_ID).")
+        return 1
+    tabs = {}
+    for spec in args.tab:
+        title, _, path = spec.partition("=")
+        if not path or not Path(path).exists():
+            say(f"Skipping tab {title!r}: no file {path!r}")
+            continue
+        tabs[title] = read_csv(Path(path))
+    try:
+        upload(authorized_session(credentials), sheet_id, tabs)
+    except SheetsError as exc:
+        say(f"Error: {exc}")
+        return 2
+    say(f"Updated {len(tabs)} tab(s): {', '.join(tabs)}")
+    return 0
+
+
 # --- copyright --------------------------------------------------------------------
 
 
@@ -560,6 +619,27 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--config", type=Path, help="govbooks config for topics")
     p.add_argument("--out", type=Path, help="write a report (.md or .csv)")
     p.set_defaults(func=cmd_watch_run)
+
+    p = sub.add_parser("amazon", help="check whether book-like documents are already sold on Amazon")
+    p.add_argument("--provider", choices=["catalog", "keepa", "creators"], help="default: from govbooks.toml")
+    p.add_argument("--limit", type=int, default=200, help="at most this many documents per run")
+    p.add_argument("--recheck-days", type=int, default=30, help="re-check documents checked over N days ago")
+    p.add_argument("--config", type=Path, help="govbooks config (Amazon provider and marketplace)")
+    p.add_argument("--verbose", action="store_true", help="print each search")
+    p.set_defaults(func=cmd_amazon)
+
+    p = sub.add_parser("export", help="write the results table (books, publisher, rights, Amazon status) as CSV")
+    p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--days", type=int, help="only documents first found in the last N days")
+    p.add_argument("--new-only", action="store_true", help="only documents that appeared after a site's first crawl")
+    p.add_argument("--all-documents", action="store_true", help="include paperwork, not only book-like files")
+    p.add_argument("--reusable", action="store_true", help="only works that screen as free to reuse")
+    p.set_defaults(func=cmd_export)
+
+    p = sub.add_parser("sheet", help="upload CSV results into Google Sheet tabs (service account)")
+    p.add_argument("--sheet-id", help="the id in the sheet's URL (default: GOOGLE_SHEET_ID)")
+    p.add_argument("--tab", action="append", required=True, help='"Tab name=path.csv" (repeatable)')
+    p.set_defaults(func=cmd_sheet)
 
     p = sub.add_parser("copyright", help="copyright policy: federal rules and exceptions, and each state")
     p.add_argument("--state", help="details for one state, e.g. CA")

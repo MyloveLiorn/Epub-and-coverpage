@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -79,6 +80,18 @@ CREATE TABLE IF NOT EXISTS agencies (
     synced_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS agencies_host ON agencies (host);
+
+-- Whether each book-like document is already sold on Amazon.
+CREATE TABLE IF NOT EXISTS amazon_checks (
+    url TEXT PRIMARY KEY REFERENCES documents (url),
+    checked_at TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    query TEXT NOT NULL,
+    matching INTEGER NOT NULL,
+    asins TEXT NOT NULL DEFAULT '[]',
+    best_rank INTEGER,
+    price REAL
+);
 
 -- Saved searches for new books.
 CREATE TABLE IF NOT EXISTS watches (
@@ -263,8 +276,13 @@ def select_sites(
 
 
 def store_result(conn: sqlite3.Connection, result: SiteResult) -> int:
-    """Save a crawl. Returns the number of new sub-sites it discovered."""
+    """Save a crawl. Returns the number of new sub-sites it discovered.
+
+    Only pages worth revisiting are kept (home pages, publication listings and pages that linked
+    to documents), so the database stays small enough to carry from run to run."""
     stamp = now()
+    linked = {d.found_on for d in result.documents.values()}
+    pages = [p for p in result.pages if p.depth == 0 or p.hint_score > 0 or p.url in linked]
     conn.executemany(
         """
         INSERT INTO pages (url, domain, title, depth, status, hint_score, found_via, fetched_at)
@@ -272,7 +290,7 @@ def store_result(conn: sqlite3.Connection, result: SiteResult) -> int:
         ON CONFLICT (url) DO UPDATE SET title = excluded.title, depth = MIN(depth, excluded.depth),
             status = excluded.status, hint_score = excluded.hint_score, fetched_at = excluded.fetched_at
         """,
-        [(p.url, result.domain, p.title, p.depth, p.status, p.hint_score, p.found_via, stamp) for p in result.pages],
+        [(p.url, result.domain, p.title, p.depth, p.status, p.hint_score, p.found_via, stamp) for p in pages],
     )
     conn.executemany(
         """
@@ -352,6 +370,59 @@ def seed_urls(conn: sqlite3.Connection, domain: str, limit: int = 50) -> list[st
         (domain, domain, limit),
     ).fetchall()
     return [r["url"] for r in rows]
+
+
+# --- Amazon checks ------------------------------------------------------------------
+
+
+def documents_to_check(conn: sqlite3.Connection, older_than: str, limit: int) -> list[sqlite3.Row]:
+    """Book-like documents never checked on Amazon, or last checked before ``older_than``; newest first."""
+    return conn.execute(
+        """
+        SELECT d.* FROM documents d LEFT JOIN amazon_checks a ON a.url = d.url
+        WHERE d.book_score > 0 AND (a.url IS NULL OR a.checked_at < ?)
+        ORDER BY d.first_seen DESC LIMIT ?
+        """,
+        (older_than, limit),
+    ).fetchall()
+
+
+def save_amazon_check(conn: sqlite3.Connection, check: dict) -> None:
+    conn.execute(
+        """
+        INSERT INTO amazon_checks (url, checked_at, provider, query, matching, asins, best_rank, price)
+        VALUES (:url, :checked_at, :provider, :query, :matching, :asins, :best_rank, :price)
+        ON CONFLICT (url) DO UPDATE SET checked_at = excluded.checked_at, provider = excluded.provider,
+            query = excluded.query, matching = excluded.matching, asins = excluded.asins,
+            best_rank = excluded.best_rank, price = excluded.price
+        """,
+        {**check, "asins": json.dumps(check["asins"])},
+    )
+    conn.commit()
+
+
+def export_rows(conn: sqlite3.Connection, books_only: bool = True, since: str | None = None,
+                new_only: bool = False) -> list[sqlite3.Row]:  # fmt: skip
+    """Documents with their site's owner and their latest Amazon check, newest first."""
+    where, params = ["1 = 1"], []
+    if books_only:
+        where.append("d.book_score > 0")
+    if since:
+        where.append("d.first_seen > ?")
+        params.append(since)
+    if new_only:
+        where.append("d.first_seen > s.first_crawled_at")
+    return conn.execute(
+        f"""
+        SELECT d.*, s.organization, s.suborganization, s.level, s.state, s.first_crawled_at,
+               a.checked_at AS amazon_checked_at, a.provider AS amazon_provider, a.matching AS amazon_matching,
+               a.asins AS amazon_asins, a.best_rank AS amazon_best_rank, a.query AS amazon_query
+        FROM documents d JOIN sites s ON s.domain = d.domain LEFT JOIN amazon_checks a ON a.url = d.url
+        WHERE {' AND '.join(where)}
+        ORDER BY d.first_seen DESC, d.book_score DESC
+        """,
+        params,
+    ).fetchall()
 
 
 # --- agencies -------------------------------------------------------------------

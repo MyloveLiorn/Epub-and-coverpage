@@ -78,9 +78,18 @@ PAPERWORK_WORDS = {
 }  # fmt: skip
 
 
+_TITLE_STOPWORDS = {"the", "and", "for", "with", "from", "into", "pdf", "doc", "file", "download"}
+
+
 def book_score(title: str, url: str) -> int:
-    """Above zero: looks like a book or book-length guide. Below zero: forms, agendas, minutes."""
+    """Above zero: looks like a book or book-length guide. Below zero: forms, agendas, minutes.
+
+    A descriptive title of three or more real words ("Beekeeping in the United States") earns a
+    point even without a word like "guide", since many books are titled that way."""
     words = set(_words(f"{title} {title_from_url(url)}"))
     words |= {w[:-1] for w in words if len(w) > 3 and w.endswith("s")}
     score = sum(BOOK_WORDS.get(w, 0) + PAPERWORK_WORDS.get(w, 0) for w in words)
+    title_words = [w for w in _words(title or title_from_url(url)) if len(w) >= 3 and w not in _TITLE_STOPWORDS]
+    if len(title_words) >= 3:
+        score += 1
     return max(-5, min(5, score))
