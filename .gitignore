@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+build/
+dist/
+
+# Local data and config (may hold results you don't want to publish)
+*.db
+*.db-journal
+govbooks.toml
+reports/
