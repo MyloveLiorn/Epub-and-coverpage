@@ -6,6 +6,11 @@ name: Search states
 # the Google Sheet and to the run's page. It starts from the weekly run's database but doesn't
 # change it.
 on:
+  # A push that changes automation/search-states.request also starts a search (of every state,
+  # 5 books each), on any branch: the Run workflow button works only once this file is on the
+  # default branch.
+  push:
+    paths: [automation/search-states.request]
   workflow_dispatch:
     inputs:
       states:
