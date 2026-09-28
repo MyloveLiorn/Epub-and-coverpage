@@ -123,7 +123,7 @@ MIGRATIONS = {
 # 1: document titles cleaned (HTML entities, text said twice, trailing dots).
 # 2: "Download »"-style titles replaced by the file name; Amazon matches re-checked with the
 #    stricter rules for short titles.
-DATA_VERSION = 2
+DATA_VERSION = 3
 
 
 def now() -> str:
@@ -159,6 +159,12 @@ def _upgrade_data(conn: sqlite3.Connection) -> None:
             [(title, book_score(title, url), url) for title, url in renamed],
         )
         conn.execute("DELETE FROM amazon_checks WHERE matching > 0")
+    if version < 3:  # letters to Congress, court filings and slides count as paperwork now
+        rows = conn.execute("SELECT url, title, book_score FROM documents").fetchall()
+        conn.executemany(
+            "UPDATE documents SET book_score = ? WHERE url = ?",
+            [(score, r["url"]) for r in rows if (score := book_score(r["title"], r["url"])) != r["book_score"]],
+        )
     if version < DATA_VERSION:
         conn.execute(f"PRAGMA user_version = {DATA_VERSION}")
         conn.commit()

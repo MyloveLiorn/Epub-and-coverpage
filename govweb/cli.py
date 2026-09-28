@@ -9,6 +9,7 @@ import sqlite3
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
+from operator import itemgetter
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -28,7 +29,7 @@ from govweb.amazon import check_documents
 from govweb.classify import host_hint_score, topic_phrases
 from govweb.crawl import CrawlLimits, crawl_site
 from govweb.exclude import is_excluded
-from govweb.export import dedupe, result_rows, write_csv, write_markdown
+from govweb.export import book_order, dedupe, pick_version, result_rows, variant_groups, write_csv, write_markdown
 from govweb.fetch import USER_AGENT, Fetcher
 from govweb.portals import ensure_portal, is_portal, state_portals
 from govweb.registry import LEVEL_NAMES, REGISTRY_URL, parse_registry
@@ -548,12 +549,14 @@ def cmd_count_pages(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     from govweb.pdfpages import count_pages
 
     docs = _narrow(db.documents_to_count(conn, books_only=not args.all_documents), args)
+    # One version of each book: not the same guide in twenty languages.
+    docs = [pick_version(g, itemgetter("title"), itemgetter("url"))
+            for g in variant_groups(docs, itemgetter("title"), itemgetter("url"), itemgetter("domain"))]  # fmt: skip
     topics = topic_matchers(args.config)
-    if topics:
-        on_topic = {d["url"] for d in docs if matching_topics(d, topics)}
-        if args.topics_only:
-            docs = [d for d in docs if d["url"] in on_topic]
-        docs.sort(key=lambda d: d["url"] not in on_topic)
+    on_topic = {d["url"] for d in docs if matching_topics(d, topics)} if topics else set()
+    if args.topics_only and topics:
+        docs = [d for d in docs if d["url"] in on_topic]
+    docs.sort(key=lambda d: (d["url"] not in on_topic, -d["book_score"]))  # stable: newest first in each group
     docs = docs[: args.limit]
     if not docs:
         say("No PDFs to count.")
@@ -583,6 +586,8 @@ def cmd_export(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
         results = [r for r in results if r["rights"] in copyright_policy.REUSABLE]
     if args.topics_only:
         results = [r for r in results if r["topics"]]
+    if args.sort == "pages":
+        results.sort(key=book_order)
     if args.out.suffix == ".md":
         results.sort(key=lambda r: not r["topics"])  # stable: topic books first, each group newest first
         write_markdown(results, args.out, args.heading or "Books found", limit=args.rows)
@@ -850,6 +855,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--heading", help="title of the .md table")
     p.add_argument("--rows", type=int, default=50, help="rows in the .md table (default 50)")
     p.add_argument("--sheet", metavar="SEARCH", help="write the Google Sheet layout, with SEARCH in its first column")
+    p.add_argument("--sort", choices=["newest", "pages"], default="newest",
+                   help="newest first (default), or the longest first with paperwork last")
     _narrow_options(p)
     p.add_argument("--days", type=int, help="only documents first found in the last N days")
     p.add_argument("--new-only", action="store_true", help="only documents that appeared after a site's first crawl")

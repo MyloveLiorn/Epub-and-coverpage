@@ -16,6 +16,7 @@ MINUTES="${MINUTES:-40}"     # minutes per site at most
 SUBSITES="${SUBSITES:-20}"   # sub-sites searched too
 SUBSITE_PAGES="${SUBSITE_PAGES:-150}"
 SUBSITE_MINUTES="${SUBSITE_MINUTES:-10}"
+PAGE_COUNTS="${PAGE_COUNTS:-400}"   # PDFs whose pages are counted
 if [ -z "${AMAZON_PROVIDER:-}" ]; then
   if [ -n "${KEEPA_API_KEY:-}" ]; then AMAZON_PROVIDER=keepa; else AMAZON_PROVIDER=catalog; fi
 fi
@@ -47,15 +48,17 @@ if [[ " ${sites[*]} " =~ nasa\.gov[\ /] ]]; then
   done
 fi
 "${web[@]}" amazon "${narrow[@]}" --provider "$AMAZON_PROVIDER" --limit 500 --config "$CONFIG" --verbose
-"${web[@]}" count-pages "${narrow[@]}" --all-documents --limit 150 --verbose
-"${web[@]}" export "${narrow[@]}" --all-documents --config "$CONFIG" --out "$OUT/books.csv"
-"${web[@]}" export "${narrow[@]}" --all-documents --config "$CONFIG" --out "$OUT/books.md" --rows 300 \
+# Page counts: the best sign of a book. Tables list the longest documents first, paperwork last.
+"${web[@]}" count-pages "${narrow[@]}" --all-documents --limit "$PAGE_COUNTS" --verbose
+"${web[@]}" export "${narrow[@]}" --all-documents --sort pages --config "$CONFIG" --out "$OUT/books.csv"
+"${web[@]}" export "${narrow[@]}" --all-documents --sort pages --config "$CONFIG" --out "$OUT/books.md" --rows 300 \
   --heading "Documents about \"$KEYWORDS\" on ${sites[*]}"
 
 # The Google Sheet: a tab per search, when the sheet's secrets are set.
 if [ -n "${GOOGLE_SERVICE_ACCOUNT_JSON:-}" ] && [ -n "${GOOGLE_SHEET_ID:-}" ]; then
   tab="Search - $(echo "$KEYWORDS" | tr -cd '[:alnum:] ,-' | cut -c1-80)"
-  "${web[@]}" export "${narrow[@]}" --all-documents --config "$CONFIG" --out "$OUT/sheet.csv" --sheet "$KEYWORDS"
+  "${web[@]}" export "${narrow[@]}" --all-documents --sort pages --config "$CONFIG" --out "$OUT/sheet.csv" \
+    --sheet "$KEYWORDS"
   "${web[@]}" sheet --formulas --tab "$tab=$OUT/sheet.csv"
 fi
 

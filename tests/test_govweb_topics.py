@@ -159,7 +159,7 @@ def test_cli_export_topics_column_and_summary(army_cli, capsys):
     assert text.startswith("## Found this week\n\n3 book(s).")
     lines = [line for line in text.splitlines() if line.startswith("| [")]
     assert "Visitor Guide" in lines[-1]  # topic books first
-    assert "[Survival Field Manual](https://army.mil/files/FM-21-76.pdf) | survival |" in text
+    assert "[Survival Field Manual](https://army.mil/files/FM-21-76.pdf) |  | survival |" in text
 
 
 def test_cli_amazon_checks_topic_books_first(army_cli, capsys, monkeypatch):
@@ -308,10 +308,56 @@ def test_generic_link_texts_and_file_names_fall_back_to_the_page_title():
 def test_one_row_per_title_per_website():
     from govweb.export import dedupe
 
-    rows = [{"website": "txcourts.gov", "title": "Emergency Preparedness Guide"},
-            {"website": "txcourts.gov", "title": "Emergency  preparedness guide"},
-            {"website": "texas.gov", "title": "Emergency Preparedness Guide"}]  # fmt: skip
+    rows = [{"website": "txcourts.gov", "title": "Emergency Preparedness Guide", "link": "https://txcourts.gov/a.pdf"},
+            {"website": "txcourts.gov", "title": "Emergency  preparedness guide", "link": "https://txcourts.gov/b.pdf"},
+            {"website": "texas.gov", "title": "Emergency Preparedness Guide", "link": "https://texas.gov/c.pdf"}]
+    for row in rows:
+        row["pages"] = ""
     assert [r["website"] for r in dedupe(rows)] == ["txcourts.gov", "texas.gov"]
+
+
+def test_one_row_per_book_whatever_its_language():
+    from govweb.classify import book_score, split_language, title_key
+    from govweb.export import dedupe
+
+    assert split_language("Asylum Guide - Spanish") == ("Asylum Guide", "spanish")
+    assert split_language("Welcome to the United States (Chinese Simplified)")[0] == "Welcome to the United States"
+    assert split_language("Asylum guide in Haitian Creole") == ("Asylum guide", "in haitian creole")
+    assert split_language("asylum guide es", file_name=True) == ("asylum guide", "es")
+    # A language inside the title is part of it: a different book.
+    assert title_key("Chinese Immigration to America") != title_key("Korean Immigration to America")
+    assert split_language("Spanish") == ("Spanish", "")
+
+    def row(title, link, pages=""):
+        return {"website": "uscis.gov", "title": title, "link": "https://www.uscis.gov/files/" + link, "pages": pages}
+
+    rows = [row("Asylum Guide - Spanish", "asylum-guide-spanish.pdf", 30),
+            row("Asylum Guide", "asylum-guide.pdf"),
+            row("Guía de asilo", "asylum-guide-es.pdf", 32),  # a translated title, but the same file name
+            row("Chinese Immigration to America", "chinese.pdf"),
+            row("Korean Immigration to America", "korean.pdf")]  # fmt: skip
+    out = dedupe(rows)
+    assert [(r["title"], r["versions"], r["pages"]) for r in out] == [
+        ("Asylum Guide", 3, 32), ("Chinese Immigration to America", 1, ""), ("Korean Immigration to America", 1, "")
+    ]
+    # Paperwork: letters to Congress and court filings.
+    assert book_score("Response to Representative Bonamici", "https://a.gov/x.pdf") < 0
+    assert book_score("Ahmed v. DHS Status Report", "https://a.gov/x.pdf") < 0
+    assert book_score("Title V Guide to Refugee Programs", "https://a.gov/x.pdf") > 0
+
+
+def test_book_order_puts_long_documents_first_and_paperwork_last():
+    from govweb.export import book_order
+
+    rows = [{"title": "Fact sheet", "topics": "immigration", "pages": 2, "book_score": 1},
+            {"title": "Court exhibit", "topics": "immigration", "pages": 300, "book_score": -2},
+            {"title": "Unknown length", "topics": "immigration", "pages": "", "book_score": 1},
+            {"title": "Manual", "topics": "immigration", "pages": 271, "book_score": 2},
+            {"title": "Off topic", "topics": "", "pages": 500, "book_score": 3},
+            {"title": "Study guide", "topics": "immigration", "pages": 44, "book_score": 2}]  # fmt: skip
+    assert [r["title"] for r in sorted(rows, key=book_order)] == [
+        "Manual", "Study guide", "Unknown length", "Fact sheet", "Court exhibit", "Off topic"
+    ]
 
 
 def test_cli_export_and_amazon_narrowed_to_sites_and_keywords(army_cli, capsys, monkeypatch):

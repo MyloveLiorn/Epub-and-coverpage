@@ -5,14 +5,18 @@ from __future__ import annotations
 import csv
 import re
 import sqlite3
+from collections.abc import Callable
+from operator import itemgetter
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from govweb.amazon import amazon_link, amazon_status
+from govweb.classify import split_language, title_from_url, title_key
 from govweb.watch import Matcher, matching_topics, rights_of
 
 # publisher: the authority (agency) that published it; website and found_on: where it was found.
 COLUMNS = [
-    "found", "new", "title", "topics", "type", "pages", "publisher", "country", "level", "state", "website",
+    "found", "new", "title", "topics", "type", "pages", "versions", "publisher", "country", "level", "state", "website",
     "found_on", "link", "rights", "on_amazon", "amazon_editions", "amazon_best_rank", "amazon_link", "book_score",
     "rights_note",
 ]  # fmt: skip
@@ -52,6 +56,7 @@ def result_rows(
                 "topics": ", ".join(matching_topics(row, topics or {})),
                 "type": row["file_type"],
                 "pages": row["pages"] or "",
+                "versions": 1,
                 "publisher": publisher_of(row),
                 "country": "United States",
                 "level": row["level"],
@@ -71,16 +76,62 @@ def result_rows(
     return out
 
 
+def language_rank(title: str, url: str) -> int:
+    """0: the title and file name name no language, 1: English, 2: another language."""
+    languages = split_language(str(title))[1] + " " + split_language(title_from_url(url), file_name=True)[1]
+    return 0 if not languages.strip() else 1 if re.fullmatch(r"(\s*(english|en|eng)\b)+\s*", languages) else 2
+
+
+def _file_key(url: str) -> tuple[str, ...]:
+    """The file's address without the language in its name: ".../guide-es.pdf" -> ".../guide"."""
+    parts = urlsplit(url)
+    folder = parts.path.rstrip("/").rsplit("/", 1)[0].lower()
+    return ("file", parts.netloc.lower(), folder, split_language(title_from_url(url), file_name=True)[0].lower(),
+            parts.query)  # fmt: skip
+
+
+def variant_groups(items: list, title: Callable, url: Callable, site: Callable) -> list[list]:
+    """Items grouped by book: the same title on a website, or the same file name, whatever
+    language each is in. Groups keep the order of their first item."""
+    groups: list[list] = []
+    index: dict[tuple, int] = {}
+    for item in items:
+        keys = [_file_key(url(item)), ("title", site(item), title_key(str(title(item))) or str(title(item)).lower())]
+        found = next((index[k] for k in keys if k in index), None)
+        if found is None:
+            found = len(groups)
+            groups.append([])
+        groups[found].append(item)
+        for key in keys:
+            index.setdefault(key, found)
+    return groups
+
+
+def pick_version(group: list, title: Callable, url: Callable) -> object:
+    """The original of a book published in several languages: no language named, else English."""
+    return min(group, key=lambda item: language_rank(title(item), url(item)))
+
+
 def dedupe(rows: list[dict]) -> list[dict]:
-    """One row per title per website: sites often link the same book from two addresses."""
-    seen: set[tuple[str, str]] = set()
+    """One row per book per website: sites link the same book from two addresses, and publish
+    it in many languages ("Asylum Guide - Spanish", "asylum-guide-es.pdf"); the original is kept,
+    with the other versions' page count when its own is unknown."""
     out = []
-    for row in rows:
-        key = (row["website"], " ".join(str(row["title"]).lower().split()))
-        if key not in seen:
-            seen.add(key)
-            out.append(row)
+    for group in variant_groups(rows, itemgetter("title"), itemgetter("link"), itemgetter("website")):
+        row = dict(pick_version(group, itemgetter("title"), itemgetter("link")))
+        if not row["pages"]:
+            row["pages"] = max((r["pages"] for r in group if r["pages"]), default="")
+        row["versions"] = len(group)
+        out.append(row)
     return out
+
+
+def book_order(row: dict) -> tuple:
+    """Sort key: topic books first and paperwork last; in between, the longest documents first
+    (length is the best sign of a book), those of unknown length between long and short ones."""
+    pages = int(row["pages"] or 0)
+    length = 3 if pages >= 100 else 2 if pages >= 40 else 1 if pages >= 15 or not pages else 0
+    return (not row["topics"], row["book_score"] < 0, -length, -row["book_score"], -pages)
 
 
 # The Google Sheet layout: the title links to the book; where it came from, Amazon, pages, rights.
@@ -134,11 +185,14 @@ def write_markdown(rows: list[dict], path: Path, heading: str, limit: int = 50) 
     """A short table for reading on a phone (the GitHub Actions run summary)."""
     lines = [f"## {heading}", "", f"{len(rows)} book(s).", ""]
     if rows:
-        lines += ["| Title | Topics | Publisher | Rights | On Amazon |", "|---|---|---|---|---|"]
+        lines += ["| Title | Pages | Topics | Publisher | Rights | On Amazon |", "|---|---|---|---|---|---|"]
         for r in rows[:limit]:
             title = _md(r["title"]).replace("[", "(").replace("]", ")")
             link = r["link"].replace(" ", "%20").replace(")", "%29")
-            cells = [f"[{title}]({link})", _md(r["topics"]), _md(r["publisher"]), r["rights"], r["on_amazon"]]
+            if r["versions"] > 1:
+                title += f" ({r['versions']} versions)"
+            cells = [f"[{title}]({link})", str(r["pages"]), _md(r["topics"]), _md(r["publisher"]), r["rights"],
+                     r["on_amazon"]]  # fmt: skip
             lines.append("| " + " | ".join(cells) + " |")
         if len(rows) > limit:
             lines += ["", f"... and {len(rows) - limit} more in the CSV files."]

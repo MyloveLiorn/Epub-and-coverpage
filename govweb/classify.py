@@ -140,7 +140,24 @@ PAPERWORK_WORDS = {
     "permit": -2, "notice": -2, "flyer": -2, "memo": -2, "memorandum": -2, "resolution": -2, "ordinance": -2,
     "contract": -2, "bid": -2, "schedule": -2, "calendar": -2, "press": -1, "release": -1, "newsletter": -1,
     "checklist": -1, "packet": -1, "budget": -1, "audit": -1, "testimony": -1, "letter": -1,
+    # Letters to Congress, court filings, and slides and handouts from meetings, which agency
+    # sites (USCIS, DHS, Justice) publish by the hundred.
+    "representative": -3, "senator": -3, "congressman": -3, "congresswoman": -3, "dkt": -3, "ecf": -3,
+    "docket": -2, "exhibit": -2, "filing": -2, "motion": -2, "complaint": -2, "affidavit": -2, "stipulation": -2,
+    "presentation": -2, "powerpoint": -2, "slide": -2, "webinar": -2, "infographic": -2, "poster": -2,
+    "factsheet": -2, "engagement": -1, "talking": -1, "listening": -1, "sheet": -1, "transcript": -1,
 }  # fmt: skip
+
+# A court case's name: "Ahmed v. DHS", "Doe vs Smith"; but not "Title V Grants" or "Part V".
+_CAPTION = re.compile(r"\b([a-z][\w.'&-]*)[\s_-]+vs?\.?[\s_-]+[a-z]", re.IGNORECASE)
+_ROMAN_V_AFTER = {"title", "part", "chapter", "section", "volume", "vol", "phase", "appendix", "annex", "book",
+                  "article", "form", "schedule", "level", "tier", "stage", "module", "unit", "grade", "class", "type",
+                  "category", "division", "subpart", "subchapter", "table", "figure", "exhibit", "attachment",
+                  "enclosure", "tab", "step", "lesson", "session", "year", "no", "number", "item"}  # fmt: skip
+
+
+def is_court_case(text: str) -> bool:
+    return any(m.group(1).lower().rstrip(".") not in _ROMAN_V_AFTER for m in _CAPTION.finditer(text))
 
 
 _TITLE_STOPWORDS = {"the", "and", "for", "with", "from", "into", "pdf", "doc", "file", "download"}
@@ -157,4 +174,50 @@ def book_score(title: str, url: str) -> int:
     title_words = [w for w in _words(title or title_from_url(url)) if len(w) >= 3 and w not in _TITLE_STOPWORDS]
     if len(title_words) >= 3:
         score += 1
+    if is_court_case(title) or is_court_case(title_from_url(url)):
+        score -= 3
     return max(-5, min(5, score))
+
+
+# One book in many languages: "Asylum Guide - Spanish", "Asylum Guide (Haitian Creole)",
+# "asylum-guide-es.pdf". Only a language at the start or end of the title, or in brackets,
+# marks a translation; "Chinese Immigration to America" is its own book.
+LANGUAGE_NAMES = [
+    "english", "spanish", "espanol", "español", "french", "francais", "français", "haitian creole", "haitian",
+    "creole", "kreyol", "kreyòl", "arabic", "chinese", "simplified chinese", "traditional chinese", "mandarin",
+    "cantonese", "russian", "korean", "vietnamese", "tagalog", "filipino", "dari", "pashto", "farsi", "persian",
+    "urdu", "hindi", "bengali", "punjabi", "burmese", "armenian", "amharic", "nepali", "indonesian", "portuguese",
+    "somali", "swahili", "tigrinya", "ukrainian", "polish", "japanese", "german", "italian", "hmong", "khmer",
+    "lao", "thai", "turkish", "uzbek", "kinyarwanda", "kirundi", "karen", "chuukese", "marshallese", "samoan",
+    "tongan", "ilocano", "greek", "hebrew", "romanian", "albanian", "bosnian", "serbian", "croatian", "oromo",
+    "dinka", "nuer", "pular", "wolof", "fulani", "mam", "kiche", "k'iche'", "quiche",
+]  # fmt: skip
+_LANG = "|".join(re.escape(n).replace(r"\ ", r"\s+") for n in sorted(LANGUAGE_NAMES, key=len, reverse=True))
+_QUALIFIER = r"(?:\s+(?:simplified|traditional|version|translation|language|edition))*"
+_LANG_END = re.compile(
+    rf"(?:[\s\-–—:|,/]*[(\[]?\s*(?:in\s+|en\s+)?(?:{_LANG}){_QUALIFIER}\s*[)\]]?)+\s*$", re.IGNORECASE
+)
+_LANG_START = re.compile(rf"^\s*[(\[]?\s*(?:{_LANG}){_QUALIFIER}\s*[)\]]?\s*[-–—:|]\s*", re.IGNORECASE)
+_LANG_BRACKETS = re.compile(rf"[(\[]\s*(?:{_LANG}){_QUALIFIER}\s*[)\]]", re.IGNORECASE)
+# Language codes at the end of a file name: "guide-es", "guide_SP".
+_LANG_CODE_END = re.compile(r"[\s_\-(\[]+(?:es|sp|spa|fr|zh|ko|vi|ru|ht|pt|tl|ar|en|eng)[)\]]?\s*$", re.IGNORECASE)
+
+
+def split_language(title: str, file_name: bool = False) -> tuple[str, str]:
+    """ "Asylum Guide - Spanish" -> ("Asylum Guide", "spanish"); ("Asylum Guide", "") without one.
+    With ``file_name``, a language code at the end counts too ("asylum guide es")."""
+    language: list[str] = []
+    for pattern in (_LANG_BRACKETS, _LANG_START, _LANG_END):
+        found: list[str] = []
+        stripped = pattern.sub(lambda m, found=found: found.append(m.group(0)) or " ", title)
+        if stripped.strip(" -|:._,"):  # a title that is only a language stays as it is
+            title, language = stripped, language + found
+    if file_name:
+        title = _LANG_CODE_END.sub(lambda m: language.append(m.group(0)) or "", title)
+    base = " ".join(title.split()).strip(" -|:._,")
+    return base, " ".join(" ".join(part.strip(" -|:._,()[]") for part in language).lower().split())
+
+
+def title_key(title: str) -> str:
+    """The title's words without the language it is in, for telling translations of a book apart."""
+    return " ".join(_words(split_language(title)[0]))
