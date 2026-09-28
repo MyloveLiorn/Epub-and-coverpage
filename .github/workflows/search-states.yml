@@ -91,7 +91,7 @@ jobs:
 
   combine:
     needs: state
-    if: always() && needs.state.result != 'skipped'
+    if: ${{ !cancelled() && needs.state.result != 'skipped' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
