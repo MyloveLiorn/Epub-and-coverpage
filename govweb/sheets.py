@@ -45,9 +45,11 @@ def read_csv(path: Path) -> list[list[str]]:
         return list(csv.reader(fh))
 
 
-def upload(session: Any, sheet_id: str, tabs: dict[str, list[list[str]]]) -> None:
+def upload(session: Any, sheet_id: str, tabs: dict[str, list[list[str]]], formulas: bool = False) -> None:
     """Replace the contents of each named tab (creating missing tabs). Values are written as
-    plain text (RAW), so nothing from a website can run as a formula."""
+    plain text (RAW), so nothing from a website can run as a formula. With ``formulas`` they are
+    entered as typed (USER_ENTERED): for tables whose only formulas are our own HYPERLINK cells,
+    every other cell having been made safe (a leading apostrophe keeps it text)."""
     base = f"{API}/{sheet_id}"
     meta = _check(session.get(base, params={"fields": "sheets.properties.title"}), "reading the sheet")
     existing = {s["properties"]["title"] for s in meta.get("sheets", [])}
@@ -62,7 +64,7 @@ def upload(session: Any, sheet_id: str, tabs: dict[str, list[list[str]]]) -> Non
         _check(
             session.put(
                 f"{base}/values/{top_left}",
-                params={"valueInputOption": "RAW"},
+                params={"valueInputOption": "USER_ENTERED" if formulas else "RAW"},
                 json={"values": rows[:MAX_ROWS]},
             ),
             f"writing {title!r}",

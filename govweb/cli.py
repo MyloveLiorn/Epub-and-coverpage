@@ -573,7 +573,7 @@ def cmd_export(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
         results.sort(key=lambda r: not r["topics"])  # stable: topic books first, each group newest first
         write_markdown(results, args.out, args.heading or "Books found", limit=args.rows)
     else:
-        write_csv(results, args.out)
+        write_csv(results, args.out, sheet_search=args.sheet)
     say(f"Wrote {len(results)} row(s) to {args.out}")
     return 0
 
@@ -596,7 +596,7 @@ def cmd_sheet(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
             continue
         tabs[title] = read_csv(Path(path))
     try:
-        upload(authorized_session(credentials), sheet_id, tabs)
+        upload(authorized_session(credentials), sheet_id, tabs, formulas=args.formulas)
     except SheetsError as exc:
         say(f"Error: {exc}")
         return 2
@@ -834,6 +834,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--topics-only", action="store_true", help="only documents matching a topic")
     p.add_argument("--heading", help="title of the .md table")
     p.add_argument("--rows", type=int, default=50, help="rows in the .md table (default 50)")
+    p.add_argument("--sheet", metavar="SEARCH", help="write the Google Sheet layout, with SEARCH in its first column")
     _narrow_options(p)
     p.add_argument("--days", type=int, help="only documents first found in the last N days")
     p.add_argument("--new-only", action="store_true", help="only documents that appeared after a site's first crawl")
@@ -844,6 +845,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("sheet", help="upload CSV results into Google Sheet tabs (service account)")
     p.add_argument("--sheet-id", help="the id in the sheet's URL (default: GOOGLE_SHEET_ID)")
     p.add_argument("--tab", action="append", required=True, help='"Tab name=path.csv" (repeatable)')
+    p.add_argument("--formulas", action="store_true",
+                   help="enter formulas (for CSVs written by export --sheet, whose titles are links)")
     p.set_defaults(func=cmd_sheet)
 
     p = sub.add_parser("copyright", help="copyright policy: federal rules and exceptions, and each state")

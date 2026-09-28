@@ -71,15 +71,47 @@ def dedupe(rows: list[dict]) -> list[dict]:
     return out
 
 
+# The Google Sheet layout: the title links to the book; where it came from, Amazon, pages, rights.
+SHEET_COLUMNS = ["Search", "Title (link)", "Authority", "Country", "Source website", "Found on (page)", "On Amazon",
+                 "Amazon link", "Amazon sales rank", "Pages", "Copyright", "Topics", "Found"]  # fmt: skip
+RIGHTS_LABELS = {
+    "public_domain": "Public domain", "likely_public_domain": "Likely public domain",
+    "check": "Check the document", "likely_copyrighted": "Likely copyrighted", "unknown": "Unknown",
+}  # fmt: skip
+
+
+def hyperlink(url: str, text: str) -> str:
+    """A HYPERLINK formula; quotes are doubled, so website text can't escape the string."""
+    def literal(value: str) -> str:
+        return '"' + " ".join(value.split()).replace('"', '""')[:1000] + '"'
+
+    return f"=HYPERLINK({literal(url)}, {literal(text)})"
+
+
+def sheet_table(rows: list[dict], search: str = "") -> list[list[str]]:
+    """Header plus rows in the sheet layout. Only the title cell is a formula (the link); every
+    other cell is made safe, so text from websites never runs as a formula."""
+    table = [SHEET_COLUMNS]
+    for r in rows:
+        rights = RIGHTS_LABELS.get(r["rights"], r["rights"])
+        table.append([safe_cell(search), hyperlink(r["link"], r["title"]), *(safe_cell(v) for v in (
+            r["publisher"], r["country"], r["website"], r["found_on"], r["on_amazon"], r["amazon_link"],
+            r["amazon_best_rank"], r["pages"], f"{rights}: {r['rights_note']}" if r["rights_note"] else rights,
+            r["topics"], r["found"],
+        ))])  # fmt: skip
+    return table
+
+
 def as_table(rows: list[dict]) -> list[list[str]]:
     """Header plus rows, every cell made safe for spreadsheets."""
     return [COLUMNS] + [[safe_cell(r[c]) for c in COLUMNS] for r in rows]
 
 
-def write_csv(rows: list[dict], path: Path) -> None:
+def write_csv(rows: list[dict], path: Path, sheet_search: str | None = None) -> None:
+    """The results table as CSV; with ``sheet_search``, in the Google Sheet layout."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as fh:
-        csv.writer(fh).writerows(as_table(rows))
+        csv.writer(fh).writerows(as_table(rows) if sheet_search is None else sheet_table(rows, sheet_search))
 
 
 def _md(value: object) -> str:

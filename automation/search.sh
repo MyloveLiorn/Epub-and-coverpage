@@ -51,5 +51,12 @@ fi
 "${web[@]}" export "${narrow[@]}" --all-documents --config "$CONFIG" --out "$OUT/books.md" --rows 300 \
   --heading "Documents about \"$KEYWORDS\" on ${sites[*]}"
 
+# The Google Sheet: a tab per search, when the sheet's secrets are set.
+if [ -n "${GOOGLE_SERVICE_ACCOUNT_JSON:-}" ] && [ -n "${GOOGLE_SHEET_ID:-}" ]; then
+  tab="Search - $(echo "$KEYWORDS" | tr -cd '[:alnum:] ,-' | cut -c1-80)"
+  "${web[@]}" export "${narrow[@]}" --all-documents --config "$CONFIG" --out "$OUT/sheet.csv" --sheet "$KEYWORDS"
+  "${web[@]}" sheet --formulas --tab "$tab=$OUT/sheet.csv"
+fi
+
 cat "$OUT/books.md"
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then cat "$OUT/books.md" >> "$GITHUB_STEP_SUMMARY"; fi

@@ -34,7 +34,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install
-        run: pip install .
+        run: pip install ".[sheets]"
 
       - name: Start from the weekly run's database
         run: |
@@ -57,6 +57,8 @@ jobs:
           AMAZON_CREATORS_CREDENTIAL_ID: ${{ secrets.AMAZON_CREATORS_CREDENTIAL_ID }}
           AMAZON_CREATORS_CREDENTIAL_SECRET: ${{ secrets.AMAZON_CREATORS_CREDENTIAL_SECRET }}
           AMAZON_PARTNER_TAG: ${{ secrets.AMAZON_PARTNER_TAG }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
         run: automation/search.sh
 
       - uses: actions/upload-artifact@v4

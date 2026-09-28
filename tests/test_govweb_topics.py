@@ -386,3 +386,31 @@ def test_cli_count_pages_and_the_pages_column(army_cli, capsys):
     assert (row["pages"], row["country"], row["found_on"]) == ("164", "United States", "https://army.mil/training/field-survival")
     code, out = run(capsys, "count-pages", "--keywords", "survival")
     assert "No PDFs to count." in out  # counted once
+
+
+def test_sheet_layout_links_titles_and_keeps_other_cells_plain(army_cli, capsys):
+    from govweb.export import SHEET_COLUMNS
+
+    army_cli.pages["https://army.mil/training/field-survival"] = (200, "text/html", html(
+        "Survival", ("/files/FM-21-76.pdf", '=cmd|"Survival" Field Manual'),
+    ))  # fmt: skip
+    run(capsys, "crawl", "army.mil", "--no-sitemaps")
+    code, out = run(capsys, "export", "--out", "s.csv", "--keywords", "survival", "--sheet", "Survival search")
+    with open("s.csv", newline="") as fh:
+        rows = list(csv.reader(fh))
+    assert rows[0] == SHEET_COLUMNS
+    search, title, authority, country, website, found_on, on_amazon, *_ = rows[1]
+    assert search == "Survival search" and country == "United States" and website == "army.mil"
+    assert title == '=HYPERLINK("https://army.mil/files/FM-21-76.pdf", "=cmd|""Survival"" Field Manual")'
+    assert on_amazon == "not checked"
+    assert rows[1][10].startswith("Likely public domain: US federal government work")
+
+
+def test_sheet_upload_with_formulas_uses_user_entered():
+    from govweb.sheets import upload
+    from tests.test_govweb_results import FakeSession
+
+    session = FakeSession([])
+    upload(session, "SHEET", {"Search - x": [["Title (link)"], ['=HYPERLINK("u", "t")']]}, formulas=True)
+    puts = [c for c in session.calls if c[0] == "PUT"]
+    assert puts and puts[0][2]["params"]["valueInputOption"] == "USER_ENTERED"

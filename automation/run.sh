@@ -118,10 +118,12 @@ fi
 
 # 7. Google Sheet, when its secrets are set.
 if [ -n "${GOOGLE_SERVICE_ACCOUNT_JSON:-}" ] && [ -n "${GOOGLE_SHEET_ID:-}" ]; then
-  step "${web[@]}" sheet \
-    --tab "Topic books=$DATA/topic-books.csv" \
-    --tab "New books=$DATA/new-books.csv" \
-    --tab "Website books=$DATA/website-books.csv"
+  step "${web[@]}" export --config "$CONFIG" --out "$DATA/sheet-topic.csv" --topics-only --sheet "Weekly: topics"
+  step "${web[@]}" export --config "$CONFIG" --out "$DATA/sheet-new.csv" --new-only --days 8 --sheet "Weekly: new"
+  step "${web[@]}" sheet --formulas \
+    --tab "Topic books=$DATA/sheet-topic.csv" \
+    --tab "New books=$DATA/sheet-new.csv"
+  rm -f "$DATA/sheet-topic.csv" "$DATA/sheet-new.csv"
 fi
 
 if [ "${#failed[@]}" -gt 0 ]; then
