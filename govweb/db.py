@@ -374,6 +374,10 @@ def store_result(conn: sqlite3.Connection, result: SiteResult) -> int:
         INSERT INTO documents (url, domain, title, file_type, found_on, found_via, book_score, first_seen, last_seen)
         VALUES (:url, :domain, :title, :file_type, :found_on, :found_via, :book_score, :stamp, :stamp)
         ON CONFLICT (url) DO UPDATE SET last_seen = excluded.last_seen,
+            found_on = CASE WHEN documents.found_via = 'sitemap' AND excluded.found_via != 'sitemap'
+                            THEN excluded.found_on ELSE documents.found_on END,
+            found_via = CASE WHEN documents.found_via = 'sitemap' AND excluded.found_via != 'sitemap'
+                             THEN excluded.found_via ELSE documents.found_via END,
             title = CASE WHEN documents.title = :fallback THEN excluded.title ELSE documents.title END,
             book_score = CASE WHEN documents.title = :fallback THEN excluded.book_score ELSE documents.book_score END
         """,
@@ -456,7 +460,8 @@ def documents_to_count(conn: sqlite3.Connection, books_only: bool = True) -> lis
     """PDFs whose pages haven't been counted, with their site's owner; newest first."""
     return conn.execute(
         f"""
-        SELECT d.*, s.organization, s.suborganization FROM documents d JOIN sites s ON s.domain = d.domain
+        SELECT d.*, s.organization, s.suborganization, s.level, s.state
+        FROM documents d JOIN sites s ON s.domain = d.domain
         WHERE d.file_type = 'pdf' AND d.pages IS NULL {'AND d.book_score > 0' if books_only else ''}
         ORDER BY d.first_seen DESC, d.book_score DESC
         """
@@ -472,7 +477,7 @@ def documents_to_check(conn: sqlite3.Connection, older_than: str, limit: int = -
     """Book-like documents never checked on Amazon, or last checked before ``older_than``; newest first."""
     return conn.execute(
         """
-        SELECT d.*, s.organization, s.suborganization
+        SELECT d.*, s.organization, s.suborganization, s.level, s.state
         FROM documents d JOIN sites s ON s.domain = d.domain LEFT JOIN amazon_checks a ON a.url = d.url
         WHERE d.book_score > 0 AND (a.url IS NULL OR a.checked_at < ?)
         ORDER BY d.first_seen DESC, d.book_score DESC LIMIT ?

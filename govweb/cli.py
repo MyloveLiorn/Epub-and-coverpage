@@ -233,7 +233,7 @@ def cmd_crawl(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     for domain in args.domains:
         if is_excluded(domain):
             say(f"{domain} is on the list of sites never searched (govweb/data/excluded.txt).")
-    sites = _by_promise(sites, args.crawl_keywords)[: args.limit]
+    sites = _by_promise(sites, args.crawl_keywords, keyword_list(args.prefer_names))[: args.limit]
     if not sites:  # not an error: everything chosen was crawled recently (--skip-recent-days)
         say("Nothing to crawl: every chosen site was crawled recently.")
         return 0
@@ -260,10 +260,18 @@ def _crawl_keywords(args: argparse.Namespace) -> list[str]:
     return list(dict.fromkeys(keywords + keyword_list(args.keywords)))
 
 
-def _by_promise(sites: list[sqlite3.Row], keywords: list[str]) -> list[sqlite3.Row]:
+def _by_promise(sites: list[sqlite3.Row], keywords: list[str], prefer: list[str] | None = None) -> list[sqlite3.Row]:
     """Never-crawled sites first, those whose names suggest publishers (armypubs.army.mil,
-    alabamaarchives.gov) or the searched topics leading; then the sites crawled longest ago."""
+    alabamaarchives.gov) or the searched topics leading; then the sites crawled longest ago.
+    With ``prefer`` (parts of site names: "librar", "refugee"), the state's portal and the sites
+    so named come first, whether crawled before or not."""
     phrases = topic_phrases(keywords)
+    if prefer:
+        def named(site: sqlite3.Row) -> int:
+            host = site["domain"].replace("-", "")
+            return sum(3 for part in prefer if part.lower().replace(" ", "") in host) + host_hint_score(host, phrases)
+
+        return sorted(sites, key=lambda s: (not is_portal(s["domain"]), -named(s), s["crawled_at"] is not None))
 
     def key(site: sqlite3.Row) -> tuple:
         if site["crawled_at"]:
@@ -531,9 +539,11 @@ def cmd_amazon(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
 
 
 def _narrow(rows: list[sqlite3.Row], args: argparse.Namespace) -> list[sqlite3.Row]:
-    """Only documents on --sites (or their sub-sites) whose title or file name has one of --keywords;
-    never documents on the excluded sites and paths."""
+    """Only documents on --sites (or their sub-sites), or on --state's own sites, whose title or
+    file name has one of --keywords; never documents on the excluded sites and paths."""
     rows = [r for r in rows if not is_excluded(r["url"])]
+    if getattr(args, "state", None):
+        rows = [r for r in rows if r["level"] == "state" and (r["state"] or "") == args.state.upper()]
     sites = [_clean_host(s) for s in args.sites or []]
     if sites:
         rows = [r for r in rows if any(r["domain"] == s or r["domain"].endswith("." + s) for s in sites)]
@@ -588,12 +598,33 @@ def cmd_export(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
         results = [r for r in results if r["topics"]]
     if args.sort == "pages":
         results.sort(key=book_order)
+    if args.top:
+        results = results[: args.top]
     if args.out.suffix == ".md":
         results.sort(key=lambda r: not r["topics"])  # stable: topic books first, each group newest first
         write_markdown(results, args.out, args.heading or "Books found", limit=args.rows)
     else:
         write_csv(results, args.out, sheet_search=args.sheet)
     say(f"Wrote {len(results)} row(s) to {args.out}")
+    return 0
+
+
+def cmd_merge(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
+    """Join results tables written by export (one per state, say) into one CSV, or a .md table."""
+    from govweb.export import merge_csv
+
+    try:
+        header, rows = merge_csv(sorted(args.files))
+    except ValueError as exc:
+        say(f"Error: {exc}")
+        return 1
+    if args.out.suffix == ".md":
+        write_markdown([dict(zip(header, r)) for r in rows], args.out, args.heading or "Books found", limit=args.rows)
+    else:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        with args.out.open("w", newline="", encoding="utf-8") as fh:
+            csv.writer(fh).writerows([header, *rows])
+    say(f"Wrote {len(rows)} row(s) from {len(args.files)} file(s) to {args.out}")
     return 0
 
 
@@ -684,6 +715,7 @@ def _crawl_options(p: argparse.ArgumentParser, max_pages: int = 100) -> None:
 
 def _narrow_options(p: argparse.ArgumentParser) -> None:
     p.add_argument("--sites", nargs="+", action="extend", help="only documents on these sites and their sub-sites")
+    p.add_argument("--state", help="only documents on a state's own sites (two-letter code, e.g. TX)")
     p.add_argument("--keywords", help="only documents whose title has one of these comma-separated words or phrases")
 
 
@@ -769,6 +801,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--subsite-pages", type=int, help="pages fetched per sub-site (default: --max-pages)")
     p.add_argument("--subsite-minutes", type=float, help="minutes per sub-site at most (default: --max-minutes)")
     p.add_argument("--subsites-only", action="store_true", help="crawl only the sub-sites of the chosen sites")
+    p.add_argument("--prefer-names", metavar="WORDS",
+                   help='comma-separated parts of site names crawled first, e.g. "librar,archiv,refugee" '
+                        "(the state's portal still leads)")
     p.set_defaults(func=cmd_crawl)
 
     p = sub.add_parser("portals", help="each state's official website, where its search starts")
@@ -857,12 +892,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--sheet", metavar="SEARCH", help="write the Google Sheet layout, with SEARCH in its first column")
     p.add_argument("--sort", choices=["newest", "pages"], default="newest",
                    help="newest first (default), or the longest first with paperwork last")
+    p.add_argument("--top", type=int, help="only the first N rows (after sorting)")
     _narrow_options(p)
     p.add_argument("--days", type=int, help="only documents first found in the last N days")
     p.add_argument("--new-only", action="store_true", help="only documents that appeared after a site's first crawl")
     p.add_argument("--all-documents", action="store_true", help="include paperwork, not only book-like files")
     p.add_argument("--reusable", action="store_true", help="only works that screen as free to reuse")
     p.set_defaults(func=cmd_export)
+
+    p = sub.add_parser("merge", help="join results tables written by export into one CSV or .md table")
+    p.add_argument("files", nargs="+", type=Path, help="CSV files with the same columns")
+    p.add_argument("--out", type=Path, required=True, help="a .csv file, or .md for a readable table (needs the "
+                   "export columns, not the sheet layout)")
+    p.add_argument("--heading", help="title of the .md table")
+    p.add_argument("--rows", type=int, default=300, help="rows in the .md table (default 300)")
+    p.set_defaults(func=cmd_merge)
 
     p = sub.add_parser("sheet", help="upload CSV results into Google Sheet tabs (service account)")
     p.add_argument("--sheet-id", help="the id in the sheet's URL (default: GOOGLE_SHEET_ID)")

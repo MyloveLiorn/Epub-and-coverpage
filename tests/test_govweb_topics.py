@@ -90,6 +90,23 @@ def test_sitemap_pages_on_a_topic_are_crawled():
     assert "https://army.mil/article/1/unit-news" not in fetcher.requested
 
 
+def test_a_document_is_credited_to_the_page_linking_it_not_the_sitemap():
+    sitemap = b"""<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+      <url><loc>https://army.mil/files/FM-21-76.pdf</loc></url>
+    </urlset>"""
+    pages = {
+        **ARMY,
+        "https://army.mil/sitemap.xml": (200, "application/xml", sitemap),
+        "https://army.mil/training/field-survival": (200, "text/html", html(
+            "Survival training", ("/files/FM-21-76.pdf", "Survival Field Manual"))),
+    }  # fmt: skip
+    result = crawl_site("army.mil", FakeFetcher(pages), CrawlLimits(max_pages=5, topic_keywords=["survival"]))
+    doc = result.documents["https://army.mil/files/FM-21-76.pdf"]
+    assert (doc.found_on, doc.found_via, doc.title) == (
+        "https://army.mil/training/field-survival", "link", "Survival Field Manual"
+    )
+
+
 def test_guess_owner():
     assert guess_owner("army.mil") == ("federal", None)
     assert guess_owner("fs.fed.us") == ("federal", None)
@@ -467,11 +484,11 @@ def test_sheet_layout_links_titles_and_keeps_other_cells_plain(army_cli, capsys)
     with open("s.csv", newline="") as fh:
         rows = list(csv.reader(fh))
     assert rows[0] == SHEET_COLUMNS
-    search, title, authority, country, website, found_on, on_amazon, *_ = rows[1]
-    assert search == "Survival search" and country == "United States" and website == "army.mil"
+    search, title, authority, country, state, website, found_on, on_amazon, *_ = rows[1]
+    assert search == "Survival search" and country == "United States" and website == "army.mil" and state == ""
     assert title == '=HYPERLINK("https://army.mil/files/FM-21-76.pdf", "=cmd|""Survival"" Field Manual")'
     assert on_amazon == "not checked"
-    assert rows[1][10].startswith("Likely public domain: US federal government work")
+    assert rows[1][SHEET_COLUMNS.index("Copyright")].startswith("Likely public domain: US federal government work")
 
 
 def test_sheet_upload_with_formulas_uses_user_entered():
@@ -519,3 +536,34 @@ def test_the_authority_is_the_agency_not_the_office_running_its_website():
     assert publisher_of(row("Department of Homeland Security", "Citizenship and Immigration Services")) == (
         "Citizenship and Immigration Services"
     )
+
+
+def test_state_search_keeps_a_states_best_books(army_cli, capsys):
+    conn = db.connect("w.db")
+    for host in ("aaa.ca.gov", "refugees.ca.gov", "zzz.ca.gov"):
+        db.add_site(conn, host, organization=f"{host} agency", level="state", state="CA")
+        army_cli.pages[f"https://{host}/"] = (200, "text/html", html(host))
+    army_cli.pages["https://refugees.ca.gov/"] = (200, "text/html", html(
+        "Refugee Programs", ("/files/survival-handbook.pdf", "California Survival Handbook for Newcomers"),
+        ("/files/survival-flyer.pdf", "Survival Class Flyer"), ("/files/bees.pdf", "Beekeeping in California Guide"),
+    ))  # fmt: skip
+    # Sites named like the subject go first (after the portal), crawled before or not.
+    code, out = run(capsys, "crawl", "--level", "state", "--state", "CA", "--limit", "2", "--no-sitemaps",
+                    "--prefer-names", "refugee", "--skip-recent-days", "0")  # fmt: skip
+    assert "refugees.ca.gov" in out and "aaa.ca.gov" not in out
+    code, out = run(capsys, "export", "--out", "CA.csv", "--state", "CA", "--topics-only", "--config", "govbooks.toml",
+                    "--sort", "pages", "--top", "2")  # fmt: skip
+    assert "Wrote 2 row(s)" in out
+    with open("CA.csv", newline="") as fh:
+        rows = list(csv.DictReader(fh))
+    assert {r["state"] for r in rows} == {"CA"}
+    assert "Survival Class Flyer" not in {r["title"] for r in rows}  # paperwork
+    code, out = run(capsys, "export", "--out", "TX.csv", "--state", "TX", "--topics-only", "--config", "govbooks.toml")
+    assert "Wrote 0 row(s)" in out
+    code, out = run(capsys, "merge", "CA.csv", "TX.csv", "--out", "states.md", "--heading", "By state")
+    assert code == 0 and "Wrote 2 row(s) from 2 file(s)" in out
+    text = open("states.md").read()
+    assert "| Title | Pages | State |" in text and "| CA |" in text
+    code, out = run(capsys, "merge", "CA.csv", "TX.csv", "--out", "states.csv")
+    with open("states.csv", newline="") as fh:
+        assert len(list(csv.reader(fh))) == 3  # one header

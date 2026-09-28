@@ -136,8 +136,8 @@ def book_order(row: dict) -> tuple:
 
 
 # The Google Sheet layout: the title links to the book; where it came from, Amazon, pages, rights.
-SHEET_COLUMNS = ["Search", "Title (link)", "Authority", "Country", "Source website", "Found on (page)", "On Amazon",
-                 "Amazon link", "Amazon sales rank", "Pages", "Copyright", "Topics", "Found"]  # fmt: skip
+SHEET_COLUMNS = ["Search", "Title (link)", "Authority", "Country", "State", "Source website", "Found on (page)",
+                 "On Amazon", "Amazon link", "Amazon sales rank", "Pages", "Copyright", "Topics", "Found"]  # fmt: skip
 RIGHTS_LABELS = {
     "public_domain": "Public domain", "likely_public_domain": "Likely public domain",
     "check": "Check the document", "likely_copyrighted": "Likely copyrighted", "unknown": "Unknown",
@@ -159,7 +159,7 @@ def sheet_table(rows: list[dict], search: str = "") -> list[list[str]]:
     for r in rows:
         rights = RIGHTS_LABELS.get(r["rights"], r["rights"])
         table.append([safe_cell(search), hyperlink(r["link"], r["title"]), *(safe_cell(v) for v in (
-            r["publisher"], r["country"], r["website"], r["found_on"], r["on_amazon"], r["amazon_link"],
+            r["publisher"], r["country"], r["state"], r["website"], r["found_on"], r["on_amazon"], r["amazon_link"],
             r["amazon_best_rank"], r["pages"], f"{rights}: {r['rights_note']}" if r["rights_note"] else rights,
             r["topics"], r["found"],
         ))])  # fmt: skip
@@ -185,17 +185,36 @@ def _md(value: object) -> str:
 def write_markdown(rows: list[dict], path: Path, heading: str, limit: int = 50) -> None:
     """A short table for reading on a phone (the GitHub Actions run summary)."""
     lines = [f"## {heading}", "", f"{len(rows)} book(s).", ""]
+    states = any(r.get("state") for r in rows)  # a State column when state websites are listed
     if rows:
-        lines += ["| Title | Pages | Topics | Publisher | Rights | On Amazon |", "|---|---|---|---|---|---|"]
+        lines += ["| Title | Pages |" + (" State |" if states else "") + " Topics | Publisher | Rights | On Amazon |",
+                  "|---|---|" + ("---|" if states else "") + "---|---|---|---|"]  # fmt: skip
         for r in rows[:limit]:
             title = _md(r["title"]).replace("[", "(").replace("]", ")")
             link = r["link"].replace(" ", "%20").replace(")", "%29")
-            if r["versions"] > 1:
-                title += f" ({r['versions']} versions)"
-            cells = [f"[{title}]({link})", str(r["pages"]), _md(r["topics"]), _md(r["publisher"]), r["rights"],
-                     r["on_amazon"]]  # fmt: skip
+            versions = int(r.get("versions") or 1)
+            if versions > 1:
+                title += f" ({versions} versions)"
+            cells = [f"[{title}]({link})", str(r["pages"]), *([r["state"]] if states else []), _md(r["topics"]),
+                     _md(r["publisher"]), r["rights"], r["on_amazon"]]  # fmt: skip
             lines.append("| " + " | ".join(cells) + " |")
         if len(rows) > limit:
             lines += ["", f"... and {len(rows) - limit} more in the CSV files."]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def merge_csv(paths: list[Path]) -> tuple[list[str], list[list[str]]]:
+    """The rows of CSV files written by export (one header, kept as written: safe cells and links)."""
+    header: list[str] = []
+    rows: list[list[str]] = []
+    for path in paths:
+        with path.open(newline="", encoding="utf-8") as fh:
+            table = list(csv.reader(fh))
+        if not table:
+            continue
+        if header and table[0] != header:
+            raise ValueError(f"{path} has other columns than {paths[0]}")
+        header = table[0]
+        rows += table[1:]
+    return header, rows

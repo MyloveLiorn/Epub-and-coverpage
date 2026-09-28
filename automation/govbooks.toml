@@ -19,6 +19,9 @@ marketplace = "www.amazon.com"
 
 [topics.immigration]
 keywords = ["immigration", "immigrant", "naturalization", "citizenship", "refugee", "asylum", "emigration",
-            "Ellis Island", "newcomer", "new immigrants"]
-exclude = ["immigration court calendar", "hearing notice"]
+            "Ellis Island", "Angel Island", "newcomer", "new immigrants", "new Americans"]
+# "Asylum" also names 19th-century hospitals and orphanages, and "citizenship" school civics.
+exclude = ["immigration court calendar", "hearing notice", "insane", "lunatic", "feeble-minded", "orphan asylum",
+           "asylum for the deaf", "asylum for the blind", "digital citizenship", "corporate citizenship",
+           "good citizenship", "citizenship award"]
 min_score = 3

@@ -168,9 +168,15 @@ class _Crawl:
 
     def add_document(self, url: str, title: str, kind: str, found_on: str, via: str) -> None:
         existing = self.result.documents.get(url)
-        # Keep the most descriptive title seen for a document.
-        if existing is None or (existing.title == title_from_url(url) and title != existing.title):
+        if existing is None:
             self.result.documents[url] = FoundDocument(url, title, kind, found_on, via)
+            return
+        # Keep the most descriptive title seen, and a web page that links to the document rather
+        # than the sitemap that lists it.
+        if existing.title == title_from_url(url) and title != existing.title:
+            existing.title = title
+        if existing.found_via == "sitemap" and via != "sitemap":
+            existing.found_on, existing.found_via = found_on, via
 
     def add_link(self, url: str, text: str, depth: int, found_on: str, via: str, context: str = "") -> None:
         if not any(same_site(url, d) for d in self.domains) or is_excluded(url):
