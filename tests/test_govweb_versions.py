@@ -52,9 +52,11 @@ def test_books_are_tracked_checked_and_new_versions_found():
     texas[1][SHEET_COLUMNS.index("State")] = "TX"  # its publications can't be reused
     assert versions.from_search_tab(texas) == []
     # A book added by hand: a title and the page it is published on.
-    hand = versions.from_tracked_tab([versions.COLUMNS, ["Welcome Guide", "", "", "", "",
-                                                          "https://x.gov/welcome", "", "", "", "", "", "", "", "mine"]])
-    assert (hand[0].link, hand[0].found_on, hand[0].notes) == ("", "https://x.gov/welcome", "mine")
+    row = dict.fromkeys(versions.COLUMNS, "")
+    row.update({"Title (link)": "Welcome Guide", "Found on (page)": "https://x.gov/welcome", "Notes": "mine"})
+    hand = versions.from_tracked_tab([versions.COLUMNS, [row[c] for c in versions.COLUMNS]])
+    assert (hand[0].link, hand[0].found_on, hand[0].notes, hand[0].added_by) == (
+        "", "https://x.gov/welcome", "mine", versions.YOU)
     books = versions.merge(hand, found, today)
     assert len(versions.merge(books, found, today)) == 3  # tracked once
 
@@ -147,3 +149,33 @@ def test_track_books_command_keeps_the_tab(tmp_path, monkeypatch, capsys):
     assert cli.main(["--db", "w.db", "track-books", "--sheet-id", "S"]) == 0
     assert len(sheet.tabs[versions.TAB]) == 2
     assert sheet.tabs[versions.TAB][1][versions.COLUMNS.index("Status")] == versions.NO_CHANGE
+
+
+def test_paperwork_isnt_tracked_and_search_rows_are_kept_up_to_date():
+    today = "2026-10-01"
+    found = versions.from_search_tab(search_tab(
+        ("https://x.gov/nofo.pdf", "FY18NOFO Refugee and Asylee Grant Recipients", "50", ""),
+        ("https://x.gov/remarks.pdf", "Director's Remarks at the Immigration Conference", "27", ""),
+        ("https://x.gov/manual.pdf", "Refugee Health Manual", "85", ""),
+    ))  # fmt: skip
+    assert [b.title for b in found] == ["Refugee Health Manual"]
+    # Rows tracked before the paperwork filter (no "Added by" column yet): paperwork is dropped
+    # unless the user wrote about it; a better title from the search tab replaces the old one.
+    old_columns = [c for c in versions.COLUMNS if c != "Added by"]
+
+    def old_row(link, title, notes=""):
+        row = dict.fromkeys(old_columns, "")
+        row.update({"Title (link)": hyperlink(link, title), "Link": link, "Notes": notes, "Pages": "30"})
+        return [row[c] for c in old_columns]
+
+    tracked = versions.from_tracked_tab([old_columns, old_row("https://x.gov/foa.pdf", "FY11 Citizenship FOA"),
+                                         old_row("https://x.gov/grants.pdf", "Grant Recipients", notes="keep"),
+                                         old_row("https://x.gov/manual.pdf", "manual")])  # fmt: skip
+    assert all(b.added_by == versions.SEARCH for b in tracked)
+    merged = versions.merge(tracked, found, today)
+    assert [(b.title, b.pages) for b in merged] == [("Grant Recipients", "30"), ("Refugee Health Manual", "85")]
+    # Books added by hand stay whatever their title.
+    row = dict.fromkeys(versions.COLUMNS, "")
+    row.update({"Title (link)": "Refugee flyer", "Link": "https://x.gov/flyer.pdf"})
+    mine = versions.from_tracked_tab([versions.COLUMNS, [row[c] for c in versions.COLUMNS]])
+    assert [b.title for b in versions.merge(mine, [], today)] == ["Refugee flyer"]

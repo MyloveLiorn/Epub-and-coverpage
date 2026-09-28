@@ -18,7 +18,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from govweb.classify import best_title, document_type, title_from_url
+from govweb.classify import best_title, book_score, clean_title, document_type, title_from_url
 from govweb.exclude import excluded_states
 from govweb.export import hyperlink, safe_cell
 from govweb.parse import parse_html
@@ -29,8 +29,9 @@ SOURCE_TABS = ("Search - ", "States - ")  # the search tabs whose books are trac
 MIN_PAGES = 10
 MAX_BYTES = 150_000_000
 COLUMNS = ["Title (link)", "Link", "Authority", "State", "Source website", "Found on (page)", "Pages", "Track",
-           "Status", "Newer version (link)", "Changed on", "Last checked", "Tracked since", "Notes",
+           "Status", "Newer version (link)", "Changed on", "Last checked", "Tracked since", "Added by", "Notes",
            "SHA-256", "Editions seen on the page"]  # fmt: skip
+SEARCH, YOU = "search", "you"  # who added a book: a search tab, or the user by hand
 
 NO_CHANGE, TRACKING, CHANGED, NEWER, GONE, UNREACHABLE = (
     "No change", "Tracking", "Changed at the same address", "Newer edition found", "Gone from the site",
@@ -131,6 +132,7 @@ class Tracked:
     changed_on: str = ""
     last_checked: str = ""
     tracked_since: str = ""
+    added_by: str = SEARCH
     notes: str = ""  # the user's own
     sha256: str = ""
     seen: str = ""  # addresses of the editions of this book seen on its page, space-separated
@@ -151,8 +153,17 @@ class Tracked:
         newer = hyperlink(self.newer_link, self.newer_title or self.newer_link) if self.newer_link else ""
         return [title, *(safe_cell(v) for v in (self.link, self.authority, self.state, self.website, self.found_on,
                                                 self.pages, self.track, self.status)),
-                newer, *(safe_cell(v) for v in (self.changed_on, self.last_checked, self.tracked_since, self.notes,
-                                                self.sha256, self.seen))]  # fmt: skip
+                newer, *(safe_cell(v) for v in (self.changed_on, self.last_checked, self.tracked_since, self.added_by,
+                                                self.notes, self.sha256, self.seen))]  # fmt: skip
+
+    @property
+    def paperwork(self) -> bool:
+        return book_score(self.title, self.link or self.found_on) <= 0
+
+    @property
+    def untouched(self) -> bool:
+        """Added by a search, with nothing of the user's or of its checks worth keeping."""
+        return self.added_by == SEARCH and not (self.notes or self.newer_link or self.changed_on) and self.active
 
 
 def _table(rows: list[list[str]]) -> list[dict[str, str]]:
@@ -171,6 +182,7 @@ def from_tracked_tab(rows: list[list[str]]) -> list[Tracked]:
     """The books already tracked, as read back from the tab (formulas as written), and those added
     by hand: a title with a Link (the PDF) or a Found on page."""
     books = []
+    by_hand = bool(rows) and "Added by" in rows[0]  # before the column, every row came from a search
     for r in _table(rows):
         title_link, title = parse_hyperlink(r.get("Title (link)", ""))
         found_on = _url(r.get("Found on (page)", ""))
@@ -182,16 +194,22 @@ def from_tracked_tab(rows: list[list[str]]) -> list[Tracked]:
             books.append(Tracked(link, title.strip(), r.get("Authority", ""), r.get("State", ""),
                                  r.get("Source website", ""), found_on, r.get("Pages", ""), r.get("Track", "") or "yes",
                                  r.get("Status", ""), newer_link, newer_title, r.get("Changed on", ""),
-                                 r.get("Last checked", ""), r.get("Tracked since", ""), r.get("Notes", ""),
-                                 r.get("SHA-256", ""), r.get("Editions seen on the page", "")))  # fmt: skip
+                                 r.get("Last checked", ""), r.get("Tracked since", ""),
+                                 (r.get("Added by", "").strip().lower() or YOU) if by_hand else SEARCH,
+                                 r.get("Notes", ""), r.get("SHA-256", ""),
+                                 r.get("Editions seen on the page", "")))  # fmt: skip
     return books
 
 
 def from_search_tab(rows: list[list[str]], min_pages: int = MIN_PAGES) -> list[Tracked]:
-    """The books of a search tab worth tracking: those of ``min_pages`` pages or more."""
+    """The books of a search tab worth tracking: those of ``min_pages`` pages or more that aren't
+    paperwork (grant notices, speeches, lists; govweb.classify.book_score)."""
     books = []
     for r in _table(rows):
         link, title = parse_hyperlink(r.get("Title (link)", ""))
+        title = clean_title(title) or title
+        if book_score(title, link) <= 0:
+            continue
         pages = r.get("Pages", "")
         if r.get("State", "").strip().upper() in excluded_states():  # its publications can't be reused
             continue
@@ -202,10 +220,25 @@ def from_search_tab(rows: list[list[str]], min_pages: int = MIN_PAGES) -> list[T
 
 
 def merge(tracked: list[Tracked], found: list[Tracked], today: str) -> list[Tracked]:
-    """The tracked books, plus the found ones not tracked yet (one row per book)."""
+    """The tracked books, plus the found ones not tracked yet (one row per book). A book a search
+    added is brought up to date from the search tabs (title, pages, where it was found), and left
+    out when it is paperwork the user hasn't written about and no check found a change for."""
+    fresh = {book.key: book for book in found}
     merged: list[Tracked] = []
     known: set[str] = set()
-    for book in [*tracked, *found]:
+    for book in tracked:
+        if book.key in known:
+            continue
+        newer = fresh.get(book.key)
+        if newer and book.added_by == SEARCH:
+            book.title, book.pages = newer.title or book.title, newer.pages or book.pages
+            book.authority, book.state = newer.authority or book.authority, newer.state or book.state
+            book.website, book.found_on = newer.website or book.website, newer.found_on or book.found_on
+        if book.untouched and book.paperwork:
+            continue
+        known.add(book.key)
+        merged.append(book)
+    for book in found:
         if book.key not in known:
             known.add(book.key)
             book.tracked_since = book.tracked_since or today
