@@ -360,6 +360,12 @@ def test_one_row_per_book_whatever_its_language():
             row("Guía de asilo", "asylum-guide-es.pdf", 32),  # a translated title, but the same file name
             row("Chinese Immigration to America", "chinese.pdf"),
             row("Korean Immigration to America", "korean.pdf")]  # fmt: skip
+    # One address written two ways (%20 or a space, with or without the port) is one document.
+    same = [{"website": "dhs.maryland.gov", "title": "Skilled Immigrant Taskforce Report", "pages": 23,
+             "link": "https://dhs.maryland.gov/documents/Annual%20Reports/Task%20Force%20FY17.pdf"},
+            {"website": "dhs.maryland.gov", "title": "Skilled Immigrant Task Force Annual Report FY17.", "pages": 23,
+             "link": "https://dhs.maryland.gov:443/documents/Annual Reports/Task Force FY17.pdf"}]  # fmt: skip
+    assert len(dedupe(same)) == 1
     out = dedupe(rows)
     assert [(r["title"], r["versions"], r["pages"]) for r in out] == [
         ("Asylum Guide", 3, 32), ("Chinese Immigration to America", 1, ""), ("Korean Immigration to America", 1, "")

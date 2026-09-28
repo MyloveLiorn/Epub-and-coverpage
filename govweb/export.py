@@ -8,7 +8,7 @@ import sqlite3
 from collections.abc import Callable
 from operator import itemgetter
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from govweb.amazon import amazon_link, amazon_status
 from govweb.classify import split_language, title_from_url, title_key
@@ -86,9 +86,9 @@ def language_rank(title: str, url: str) -> int:
 def _file_key(url: str) -> tuple[str, ...]:
     """The file's address without the language in its name: ".../guide-es.pdf" -> ".../guide"."""
     parts = urlsplit(url)
-    folder = parts.path.rstrip("/").rsplit("/", 1)[0].lower()
-    return ("file", parts.netloc.lower(), folder, split_language(title_from_url(url), file_name=True)[0].lower(),
-            parts.query)  # fmt: skip
+    folder = unquote(parts.path).rstrip("/").rsplit("/", 1)[0].lower()  # "a%20b" and "a b" are one address
+    return ("file", parts.hostname or "", folder, split_language(title_from_url(url), file_name=True)[0].lower(),
+            unquote(parts.query))  # fmt: skip
 
 
 def variant_groups(items: list, title: Callable, url: Callable, site: Callable) -> list[list]:
