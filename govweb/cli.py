@@ -268,7 +268,12 @@ def _by_promise(sites: list[sqlite3.Row], keywords: list[str], prefer: list[str]
     phrases = topic_phrases(keywords)
     if prefer:
         def named(site: sqlite3.Row) -> int:
-            host = site["domain"].replace("-", "")
+            # A sub-site by its own name: app3.azdhs.gov isn't a human-services site for its parent's "dhs".
+            host = site["domain"]
+            parent = site["parent_domain"] if "parent_domain" in site.keys() else None
+            if parent and host.endswith("." + parent):
+                host = host[: -len(parent) - 1] + ".x"
+            host = host.replace("-", "")
             score = host_hint_score(host, phrases)
             for part in prefer:
                 word = part.lower().replace(" ", "").lstrip("-")

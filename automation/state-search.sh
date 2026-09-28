@@ -22,7 +22,7 @@ PAGE_COUNTS="${PAGE_COUNTS:-150}"
 # Parts of site names searched first: libraries, archives and history sites publish books;
 # refugee and "new Americans" offices, and the human-services departments that run them, publish
 # about immigration. Courts, lotteries and the like ("-court") go last.
-PREFER_NAMES="${PREFER_NAMES:-librar,archiv,histor,refugee,immigra,newamerican,humanservice,dhs,dss,dhhs,-court,-appeal,-probate,-judicial,-jqc,-lottery,-sheriff,-racing,-gaming,-elect,-vote}"
+PREFER_NAMES="${PREFER_NAMES:-librar,archiv,histor,refugee,immigra,newamerican,humanservice,dhs,dss,dhhs,-court,-appeal,-probate,-judicial,-jqc,-lottery,-sheriff,-racing,-gaming,-elect,-vote,-app,-login,-licens,-complaint,-careers,-jobs,-gis,-pay}"
 if [ -z "${AMAZON_PROVIDER:-}" ]; then
   if [ -n "${KEEPA_API_KEY:-}" ]; then AMAZON_PROVIDER=keepa; else AMAZON_PROVIDER=catalog; fi
 fi

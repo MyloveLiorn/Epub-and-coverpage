@@ -572,6 +572,12 @@ def test_state_search_keeps_a_states_best_books(army_cli, capsys):
     code, out = run(capsys, "crawl", "--level", "state", "--state", "CA", "--limit", "2", "--no-sitemaps",
                     "--prefer-names", "refugee", "--skip-recent-days", "0")  # fmt: skip
     assert "refugees.ca.gov" in out and "aaa.ca.gov" not in out
+    # Sub-sites count by their own names: an app under a human-services domain isn't preferred.
+    from govweb.cli import _by_promise
+
+    sites = [{"domain": "app3.azdhs.gov", "parent_domain": "azdhs.gov", "crawled_at": None},
+             {"domain": "library.azdhs.gov", "parent_domain": "azdhs.gov", "crawled_at": None}]  # fmt: skip
+    assert [s["domain"] for s in _by_promise(sites, [], ["dhs", "librar", "-app"])][0] == "library.azdhs.gov"
     code, out = run(capsys, "export", "--out", "CA.csv", "--state", "CA", "--topics-only", "--config", "govbooks.toml",
                     "--sort", "pages", "--top", "2")  # fmt: skip
     assert "Wrote 2 row(s)" in out
