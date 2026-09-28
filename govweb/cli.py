@@ -234,7 +234,8 @@ def cmd_crawl(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
         subsites = _subsites_to_crawl(conn, [s["domain"] for s in sites], recent, args)
         if subsites:
             say(f"\nSub-sites: {', '.join(s['domain'] for s in subsites)}")
-            sub_args = argparse.Namespace(**{**vars(args), "max_pages": args.subsite_pages or args.max_pages})
+            sub_args = argparse.Namespace(**{**vars(args), "max_pages": args.subsite_pages or args.max_pages,
+                                             "max_minutes": args.subsite_minutes or args.max_minutes})
             run_crawls(conn, subsites, sub_args)
         else:
             say("No sub-sites due for a crawl.")
@@ -748,6 +749,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="then crawl the sub-sites found under them (army.mil -> history.army.mil, ...)")
     p.add_argument("--max-subsites", type=int, default=30, help="sub-sites crawled per run (default 30)")
     p.add_argument("--subsite-pages", type=int, help="pages fetched per sub-site (default: --max-pages)")
+    p.add_argument("--subsite-minutes", type=float, help="minutes per sub-site at most (default: --max-minutes)")
     p.add_argument("--subsites-only", action="store_true", help="crawl only the sub-sites of the chosen sites")
     p.set_defaults(func=cmd_crawl)
 

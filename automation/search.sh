@@ -15,6 +15,7 @@ PAGES="${PAGES:-400}"        # pages per site
 MINUTES="${MINUTES:-40}"     # minutes per site at most
 SUBSITES="${SUBSITES:-20}"   # sub-sites searched too
 SUBSITE_PAGES="${SUBSITE_PAGES:-150}"
+SUBSITE_MINUTES="${SUBSITE_MINUTES:-10}"
 if [ -z "${AMAZON_PROVIDER:-}" ]; then
   if [ -n "${KEEPA_API_KEY:-}" ]; then AMAZON_PROVIDER=keepa; else AMAZON_PROVIDER=catalog; fi
 fi
@@ -34,7 +35,7 @@ narrow=(--sites "${sites[@]}" --keywords "$KEYWORDS")
 "${web[@]}" sync || true  # the .gov map, so sub-sites are recognized
 "${web[@]}" crawl "${sites[@]}" --keywords "$KEYWORDS" --max-pages "$PAGES" --max-depth 5 \
   --max-minutes "$MINUTES" --with-subsites --max-subsites "$SUBSITES" --subsite-pages "$SUBSITE_PAGES" \
-  --skip-recent-days 0 --workers 8
+  --subsite-minutes "$SUBSITE_MINUTES" --skip-recent-days 0 --workers 8
 # NASA's reports live in its Technical Reports Server, a search application a crawl can't read;
 # it has an open API, searched here for each keyword when a NASA site is chosen.
 if [[ " ${sites[*]} " =~ nasa\.gov[\ /] ]]; then
