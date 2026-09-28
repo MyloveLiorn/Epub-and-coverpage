@@ -191,6 +191,8 @@ Each results row gives the title, the matching topics, the publisher, level and 
 
 **Start a run by hand:** open the repo on GitHub, then **Actions** → **Find government books** → **Run workflow**. For that run only, you can add more sites to search in depth (for example `navy.mil nps.gov`), choose the states to search (for example `CA TX`), and set how many sites to crawl.
 
+**Search any site for a subject, on demand:** **Actions** → **Search sites** → **Run workflow**. Enter the sites (for example `nasa.gov history.nasa.gov`) and the words to look for (for example `Apollo 13, Apollo XIII`). It searches those sites and 20 of their sub-sites, following links about the words first, checks the books it finds on Amazon, and shows the table on the run's page (also downloadable as `books.csv`). It starts from the weekly run's database but doesn't change it, so it can run at any time. On a PC: `SITES="nasa.gov" KEYWORDS="Apollo 13" automation/search.sh`.
+
 **Change the topics:** edit `automation/govbooks.toml`. **Change the priority sites:** edit `automation/priority-sites.txt` (one site per line). Both can be edited in the GitHub website or app.
 
 **Keys** go under **Settings** → **Secrets and variables** → **Actions**. All are optional:

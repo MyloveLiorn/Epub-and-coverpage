@@ -467,7 +467,7 @@ def cmd_amazon(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
 
     config = load_config(args.config)
     provider = build_provider(args.provider or config.amazon_provider, make_json_http(), config)
-    docs = db.documents_to_check(conn, older_than=_since(args.recheck_days))
+    docs = _narrow(db.documents_to_check(conn, older_than=_since(args.recheck_days)), args)
     topics = topic_matchers(args.config)
     if topics:  # books on the searched topics first, then the rest, newest first
         on_topic = {d["url"] for d in docs if matching_topics(d, topics)}
@@ -484,18 +484,30 @@ def cmd_amazon(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     return 0
 
 
+def _narrow(rows: list[sqlite3.Row], args: argparse.Namespace) -> list[sqlite3.Row]:
+    """Only documents on --sites (or their sub-sites) whose title or file name has one of --keywords."""
+    sites = [_clean_host(s) for s in args.sites or []]
+    if sites:
+        rows = [r for r in rows if any(r["domain"] == s or r["domain"].endswith("." + s) for s in sites)]
+    keywords = keyword_list(args.keywords)
+    if keywords:
+        matcher = make_matcher(None, keywords)
+        rows = [r for r in rows if matcher(r)]
+    return rows
+
+
 def cmd_export(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     rows = db.export_rows(
         conn, books_only=not args.all_documents, since=_since(args.days) if args.days else None, new_only=args.new_only
     )
-    results = dedupe(result_rows(rows, topics=topic_matchers(args.config)))
+    results = dedupe(result_rows(_narrow(rows, args), topics=topic_matchers(args.config)))
     if args.reusable:
         results = [r for r in results if r["rights"] in copyright_policy.REUSABLE]
     if args.topics_only:
         results = [r for r in results if r["topics"]]
     if args.out.suffix == ".md":
         results.sort(key=lambda r: not r["topics"])  # stable: topic books first, each group newest first
-        write_markdown(results, args.out, args.heading or "Books found")
+        write_markdown(results, args.out, args.heading or "Books found", limit=args.rows)
     else:
         write_csv(results, args.out)
     say(f"Wrote {len(results)} row(s) to {args.out}")
@@ -585,6 +597,11 @@ def _crawl_options(p: argparse.ArgumentParser, max_pages: int = 100) -> None:
     p.add_argument("--workers", type=int, default=4, help="sites crawled in parallel (each site one at a time)")
     p.add_argument("--delay", type=float, default=1.0, help="seconds between requests to one host (default 1)")
     p.add_argument("--max-minutes", type=float, help="stop each site after this many minutes")
+
+
+def _narrow_options(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--sites", nargs="+", action="extend", help="only documents on these sites and their sub-sites")
+    p.add_argument("--keywords", help="only documents whose title has one of these comma-separated words or phrases")
 
 
 def _document_filters(p: argparse.ArgumentParser) -> None:
@@ -723,6 +740,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--recheck-days", type=int, default=30, help="re-check documents checked over N days ago")
     p.add_argument("--config", type=Path, help="govbooks config (Amazon provider, marketplace, topics)")
     p.add_argument("--topics-only", action="store_true", help="only documents matching a topic (they go first anyway)")
+    _narrow_options(p)
     p.add_argument("--verbose", action="store_true", help="print each search")
     p.set_defaults(func=cmd_amazon)
 
@@ -731,6 +749,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--config", type=Path, help="govbooks config whose topics fill the topics column")
     p.add_argument("--topics-only", action="store_true", help="only documents matching a topic")
     p.add_argument("--heading", help="title of the .md table")
+    p.add_argument("--rows", type=int, default=50, help="rows in the .md table (default 50)")
+    _narrow_options(p)
     p.add_argument("--days", type=int, help="only documents first found in the last N days")
     p.add_argument("--new-only", action="store_true", help="only documents that appeared after a site's first crawl")
     p.add_argument("--all-documents", action="store_true", help="include paperwork, not only book-like files")

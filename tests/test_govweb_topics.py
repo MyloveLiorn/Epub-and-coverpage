@@ -310,3 +310,16 @@ def test_one_row_per_title_per_website():
             {"website": "txcourts.gov", "title": "Emergency  preparedness guide"},
             {"website": "texas.gov", "title": "Emergency Preparedness Guide"}]  # fmt: skip
     assert [r["website"] for r in dedupe(rows)] == ["txcourts.gov", "texas.gov"]
+
+
+def test_cli_export_and_amazon_narrowed_to_sites_and_keywords(army_cli, capsys, monkeypatch):
+    run(capsys, "crawl", "army.mil", "--with-subsites", "--no-sitemaps")
+    code, out = run(capsys, "export", "--out", "s.csv", "--sites", "history.army.mil", "--keywords", "beekeeping, bees")
+    assert "Wrote 1 row(s)" in out
+    code, out = run(capsys, "export", "--out", "s.csv", "--sites", "army.mil", "--keywords", "survival")
+    with open("s.csv", newline="") as fh:
+        assert [r["title"] for r in csv.DictReader(fh)] == ["Survival Field Manual"]
+    provider = FakeProvider({})
+    monkeypatch.setattr("govbooks.market.build_provider", lambda name, http, config: provider)
+    run(capsys, "amazon", "--sites", "home.army.mil", "--keywords", "visitor guide")
+    assert provider.queries == []  # "Visitor Guide" is too generic to search; nothing else matches
