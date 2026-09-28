@@ -262,10 +262,9 @@ def _by_promise(sites: list[sqlite3.Row], keywords: list[str]) -> list[sqlite3.R
 def _subsites_to_crawl(
     conn: sqlite3.Connection, parents: list[str], recent: str | None, args: argparse.Namespace
 ) -> list[sqlite3.Row]:
-    """The sub-sites of the crawled sites that are due, the most promising first."""
-    return _by_promise(db.select_subsites(conn, parents, not_crawled_since=recent), args.crawl_keywords)[
-        : args.max_subsites
-    ]
+    """The sub-sites of the crawled sites that are due (not those just crawled), the most promising first."""
+    subsites = [s for s in db.select_subsites(conn, parents, not_crawled_since=recent) if s["domain"] not in parents]
+    return _by_promise(subsites, args.crawl_keywords)[: args.max_subsites]
 
 
 def cmd_add(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
