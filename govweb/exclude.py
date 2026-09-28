@@ -1,4 +1,5 @@
-"""Sites and paths that are never searched or listed (govweb/data/excluded.txt)."""
+"""Sites and paths that are never searched or listed (govweb/data/excluded.txt), and states whose
+own publications can't be reused (govweb/data/excluded_states.txt)."""
 
 from __future__ import annotations
 
@@ -27,3 +28,16 @@ def is_excluded(url: str, patterns: tuple[str, ...] | None = None) -> bool:
         if not path or parts.path.lstrip("/").startswith(path):
             return True
     return False
+
+
+@cache
+def excluded_states() -> frozenset[str]:
+    """Two-letter codes of the states whose own sites are never searched or listed."""
+    text = resources.files("govweb").joinpath("data/excluded_states.txt").read_text()
+    words = (w for line in text.splitlines() for w in line.split("#", 1)[0].split())
+    return frozenset(w.upper() for w in words if len(w) == 2 and w.isalpha())
+
+
+def is_excluded_state_site(level: str | None, state: str | None) -> bool:
+    """Whether a site belongs to the government of an excluded state (not its cities or counties)."""
+    return level == "state" and (state or "").upper() in excluded_states()

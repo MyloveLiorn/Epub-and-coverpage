@@ -81,9 +81,16 @@ fi
 #    geology, ...) leading.
 ALL_STATES=(AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO
             MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY)
+# States whose publications can't be reused are left out (govweb/data/excluded_states.txt).
+skip=" $(sed -e 's/#.*//' govweb/data/excluded_states.txt | tr '\n' ' ') "
+usable=()
+for st in "${ALL_STATES[@]}"; do [[ "$skip" == *" $st "* ]] || usable+=("$st"); done
+ALL_STATES=("${usable[@]}")
 states=()
 for st in $STATES; do
-  if [[ "$st" =~ ^[A-Za-z]{2}$ ]]; then states+=("${st^^}"); else echo "Ignoring state '$st'"; fi
+  if [[ ! "$st" =~ ^[A-Za-z]{2}$ ]]; then echo "Ignoring state '$st'"
+  elif [[ "$skip" == *" ${st^^} "* ]]; then echo "Skipping ${st^^}: its publications can't be reused"
+  else states+=("${st^^}"); fi
 done
 if [ "${#states[@]}" -eq 0 ]; then
   start=$(( (10#$(date -u +%V) * STATES_PER_RUN) % ${#ALL_STATES[@]} ))

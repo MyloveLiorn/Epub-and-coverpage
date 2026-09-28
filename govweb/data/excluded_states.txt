@@ -1,0 +1,9 @@
+# States whose own publications can't be reused: their websites are never searched, and documents
+# from them are never listed. Two-letter codes; lines starting with # are ignored.
+# From the "U.S States" table (September 2026).
+
+# Copyrighted
+ME OH MA MD NY SC TX AZ
+
+# Unclear
+GA PA VA CT AR

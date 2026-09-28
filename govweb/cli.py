@@ -28,7 +28,7 @@ from govweb.agencies import (
 from govweb.amazon import check_documents
 from govweb.classify import host_hint_score, topic_phrases
 from govweb.crawl import CrawlLimits, crawl_site
-from govweb.exclude import is_excluded
+from govweb.exclude import excluded_states, is_excluded, is_excluded_state_site
 from govweb.export import book_order, dedupe, pick_version, result_rows, variant_groups, write_csv, write_markdown
 from govweb.fetch import USER_AGENT, Fetcher
 from govweb.portals import ensure_portal, is_portal, state_portals
@@ -229,10 +229,13 @@ def cmd_crawl(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     _ensure_sites(conn, args.domains)
     args.crawl_keywords = _crawl_keywords(args)
     sites = [s for s in _selected(args, conn, not_crawled_since=None if args.domains else recent, rotation=True)
-             if not is_excluded(s["domain"])]  # fmt: skip
+             if not is_excluded(s["domain"]) and not is_excluded_state_site(s["level"], s["state"])]  # fmt: skip
     for domain in args.domains:
         if is_excluded(domain):
             say(f"{domain} is on the list of sites never searched (govweb/data/excluded.txt).")
+    if args.state and args.state.upper() in excluded_states():
+        say(f"{args.state.upper()}'s own sites are never searched: its publications can't be reused "
+            "(govweb/data/excluded_states.txt).")
     sites = _by_promise(sites, args.crawl_keywords, keyword_list(args.prefer_names))[: args.limit]
     if not sites:  # not an error: everything chosen was crawled recently (--skip-recent-days)
         say("Nothing to crawl: every chosen site was crawled recently.")
@@ -296,7 +299,8 @@ def _subsites_to_crawl(
 ) -> list[sqlite3.Row]:
     """The sub-sites of the crawled sites that are due (not those just crawled), the most promising first."""
     subsites = [s for s in db.select_subsites(conn, parents, not_crawled_since=recent)
-                if s["domain"] not in parents and not is_excluded(s["domain"])]  # fmt: skip
+                if s["domain"] not in parents and not is_excluded(s["domain"])
+                and not is_excluded_state_site(s["level"], s["state"])]  # fmt: skip
     return _by_promise(subsites, args.crawl_keywords, keyword_list(getattr(args, "prefer_names", None)))[
         : args.max_subsites
     ]
@@ -552,8 +556,9 @@ def cmd_amazon(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
 
 def _narrow(rows: list[sqlite3.Row], args: argparse.Namespace) -> list[sqlite3.Row]:
     """Only documents on --sites (or their sub-sites), or on --state's own sites, whose title or
-    file name has one of --keywords; never documents on the excluded sites and paths."""
-    rows = [r for r in rows if not is_excluded(r["url"])]
+    file name has one of --keywords; never documents on the excluded sites and paths, or on the
+    sites of the states whose publications can't be reused."""
+    rows = [r for r in rows if not is_excluded(r["url"]) and not is_excluded_state_site(r["level"], r["state"])]
     if getattr(args, "state", None):
         rows = [r for r in rows if r["level"] == "state" and (r["state"] or "") == args.state.upper()]
     sites = [_clean_host(s) for s in args.sites or []]

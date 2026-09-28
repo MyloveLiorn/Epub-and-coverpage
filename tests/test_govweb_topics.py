@@ -607,3 +607,26 @@ def test_state_search_keeps_a_states_best_books(army_cli, capsys):
     code, out = run(capsys, "merge", "CA.csv", "TX.csv", "--out", "states.csv")
     with open("states.csv", newline="") as fh:
         assert len(list(csv.reader(fh))) == 3  # one header
+
+
+def test_states_whose_publications_cant_be_reused_are_skipped(army_cli, capsys):
+    from govweb.crawl import FoundDocument, SiteResult
+    from govweb.exclude import excluded_states, is_excluded_state_site
+
+    assert {"TX", "MD", "GA"} <= excluded_states() and "CA" not in excluded_states()
+    assert is_excluded_state_site("state", "tx") and not is_excluded_state_site("city", "TX")
+    conn = db.connect("w.db")
+    for host, state in (("tsl.texas.gov", "TX"), ("library.ca.gov", "CA")):
+        db.add_site(conn, host, organization=host, level="state", state=state)
+        army_cli.pages[f"https://{host}/"] = (200, "text/html", html(host))
+        result = SiteResult(host)
+        result.documents[f"https://{host}/survival.pdf"] = FoundDocument(
+            f"https://{host}/survival.pdf", "State Survival Handbook", "pdf", f"https://{host}/", "link"
+        )
+        db.store_result(conn, result)
+    code, out = run(capsys, "crawl", "--level", "state", "--state", "TX", "--no-sitemaps")
+    assert "TX's own sites are never searched" in out and "https://tsl.texas.gov/" not in army_cli.requested
+    code, out = run(capsys, "export", "--out", "all.csv")
+    with open("all.csv", newline="") as fh:
+        sites = {r["website"] for r in csv.DictReader(fh)}
+    assert "library.ca.gov" in sites and "tsl.texas.gov" not in sites
