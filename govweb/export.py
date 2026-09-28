@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import re
 import sqlite3
 from pathlib import Path
 
@@ -25,6 +26,17 @@ def safe_cell(value: object) -> str:
     return text
 
 
+# The .gov registry often names the office that runs a domain, not the one that publishes on it.
+_IT_OFFICE = re.compile(r"chief information officer|information technology|\bocio\b|web services|digital services",
+                        re.IGNORECASE)  # fmt: skip
+
+
+def publisher_of(row: sqlite3.Row) -> str:
+    """The agency behind a document: the sub-organization, unless that is only the IT office."""
+    sub = row["suborganization"]
+    return sub if sub and not _IT_OFFICE.search(sub) else row["organization"]
+
+
 def result_rows(
     rows: list[sqlite3.Row], marketplace: str = "www.amazon.com", topics: dict[str, Matcher] | None = None
 ) -> list[dict]:
@@ -40,7 +52,7 @@ def result_rows(
                 "topics": ", ".join(matching_topics(row, topics or {})),
                 "type": row["file_type"],
                 "pages": row["pages"] or "",
-                "publisher": row["suborganization"] or row["organization"],
+                "publisher": publisher_of(row),
                 "country": "United States",
                 "level": row["level"],
                 "state": row["state"] or "",
