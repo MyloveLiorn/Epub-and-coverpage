@@ -263,13 +263,18 @@ def _crawl_keywords(args: argparse.Namespace) -> list[str]:
 def _by_promise(sites: list[sqlite3.Row], keywords: list[str], prefer: list[str] | None = None) -> list[sqlite3.Row]:
     """Never-crawled sites first, those whose names suggest publishers (armypubs.army.mil,
     alabamaarchives.gov) or the searched topics leading; then the sites crawled longest ago.
-    With ``prefer`` (parts of site names: "librar", "refugee"), the state's portal and the sites
-    so named come first, whether crawled before or not."""
+    With ``prefer`` (parts of site names: "librar", "refugee"; "-court" for names to put last),
+    the state's portal and the sites so named come first, whether crawled before or not."""
     phrases = topic_phrases(keywords)
     if prefer:
         def named(site: sqlite3.Row) -> int:
             host = site["domain"].replace("-", "")
-            return sum(3 for part in prefer if part.lower().replace(" ", "") in host) + host_hint_score(host, phrases)
+            score = host_hint_score(host, phrases)
+            for part in prefer:
+                word = part.lower().replace(" ", "").lstrip("-")
+                if word and word in host:
+                    score += -3 if part.startswith("-") else 3
+            return score
 
         return sorted(sites, key=lambda s: (not is_portal(s["domain"]), -named(s), s["crawled_at"] is not None))
 
@@ -287,7 +292,9 @@ def _subsites_to_crawl(
     """The sub-sites of the crawled sites that are due (not those just crawled), the most promising first."""
     subsites = [s for s in db.select_subsites(conn, parents, not_crawled_since=recent)
                 if s["domain"] not in parents and not is_excluded(s["domain"])]  # fmt: skip
-    return _by_promise(subsites, args.crawl_keywords)[: args.max_subsites]
+    return _by_promise(subsites, args.crawl_keywords, keyword_list(getattr(args, "prefer_names", None)))[
+        : args.max_subsites
+    ]
 
 
 def cmd_portals(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
@@ -803,7 +810,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--subsites-only", action="store_true", help="crawl only the sub-sites of the chosen sites")
     p.add_argument("--prefer-names", metavar="WORDS",
                    help='comma-separated parts of site names crawled first, e.g. "librar,archiv,refugee" '
-                        "(the state's portal still leads)")
+                        '(the state\'s portal still leads); "-court" puts names with "court" last')
     p.set_defaults(func=cmd_crawl)
 
     p = sub.add_parser("portals", help="each state's official website, where its search starts")
