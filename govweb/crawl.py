@@ -25,6 +25,7 @@ from govweb.classify import (
     topic_phrases,
     topic_score,
 )
+from govweb.exclude import is_excluded
 from govweb.fetch import HTML_TYPES, FetchResult
 from govweb.parse import MAX_SITEMAP_BYTES, parse_html, parse_sitemap
 
@@ -172,7 +173,7 @@ class _Crawl:
             self.result.documents[url] = FoundDocument(url, title, kind, found_on, via)
 
     def add_link(self, url: str, text: str, depth: int, found_on: str, via: str, context: str = "") -> None:
-        if not any(same_site(url, d) for d in self.domains):
+        if not any(same_site(url, d) for d in self.domains) or is_excluded(url):
             return
         kind = document_type(url)
         if kind:

@@ -414,3 +414,24 @@ def test_sheet_upload_with_formulas_uses_user_entered():
     upload(session, "SHEET", {"Search - x": [["Title (link)"], ['=HYPERLINK("u", "t")']]}, formulas=True)
     puts = [c for c in session.calls if c[0] == "PUT"]
     assert puts and puts[0][2]["params"]["valueInputOption"] == "USER_ENTERED"
+
+
+def test_excluded_sites_and_paths_are_never_searched_or_listed(army_cli, capsys):
+    from govweb.exclude import is_excluded
+
+    assert is_excluded("https://www.ecfr.gov/current/title-8")
+    assert is_excluded("https://www.govinfo.gov/content/pkg/CFR-2024-title8-vol1/pdf/CFR-2024-title8-vol1.pdf")
+    assert not is_excluded("https://www.govinfo.gov/app/collection/budget")
+    assert not is_excluded("https://www.uscis.gov/guide.pdf")
+    code, out = run(capsys, "crawl", "ecfr.gov", "--no-sitemaps")
+    assert "ecfr.gov is on the list of sites never searched" in out
+    assert not [u for u in army_cli.requested if "ecfr.gov" in u]
+    army_cli.pages["https://govinfo.gov/"] = (200, "text/html", html(
+        "GovInfo",
+        ("/content/pkg/CFR-2024-title8-vol1/pdf/CFR-2024-title8-vol1.pdf", "8 CFR Aliens and Nationality"),
+        ("/content/pkg/BUDGET-2025/pdf/budget-guide.pdf", "Guide to the Budget of the United States"),
+    ))  # fmt: skip
+    run(capsys, "crawl", "govinfo.gov", "--no-sitemaps")
+    run(capsys, "export", "--out", "g.csv", "--sites", "govinfo.gov", "--all-documents")
+    with open("g.csv", newline="") as fh:
+        assert [r["title"] for r in csv.DictReader(fh)] == ["Guide to the Budget of the United States"]
