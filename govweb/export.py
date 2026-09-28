@@ -11,13 +11,13 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from govweb.amazon import amazon_link, amazon_status
-from govweb.classify import split_language, title_from_url, title_key
+from govweb.classify import split_language, title_from_url, title_key, url_year, year_in
 from govweb.covers import LABELS as COVER_LABELS
 from govweb.watch import Matcher, matching_topics, rights_of
 
 # publisher: the authority (agency) that published it; website and found_on: where it was found.
 COLUMNS = [
-    "found", "new", "title", "topics", "type", "pages", "cover", "versions", "publisher", "country", "level", "state", "website",
+    "found", "new", "title", "year", "topics", "type", "pages", "cover", "versions", "publisher", "country", "level", "state", "website",
     "found_on", "link", "rights", "on_amazon", "amazon_editions", "amazon_best_rank", "amazon_link", "book_score",
     "rights_note",
 ]  # fmt: skip
@@ -55,6 +55,7 @@ def result_rows(
                 "found": row["first_seen"][:10],
                 "new": "yes" if row["first_crawled_at"] and row["first_seen"] > row["first_crawled_at"] else "",
                 "title": row["title"],
+                "year": publication_year(row),
                 "topics": ", ".join(matching_topics(row, topics or {})),
                 "type": row["file_type"],
                 "pages": row["pages"] or "",
@@ -131,6 +132,20 @@ def dedupe(rows: list[dict]) -> list[dict]:
     return out
 
 
+def publication_year(row: sqlite3.Row) -> int | str:
+    """The year a document was published, as well as can be told: the year its title names, else
+    the one its first page names or the PDF was made (count-pages), else the one in its address."""
+    pdf_year = row["year"] if "year" in row.keys() else None
+    return year_in(row["title"] or "") or pdf_year or url_year(row["url"]) or ""
+
+
+def year_order(row: dict) -> tuple:
+    """Sort key: topic books first and paperwork last; in between, the latest published first
+    (those of unknown year last), the longest first within a year."""
+    year = int(row["year"] or 0)
+    return (not row["topics"], row["book_score"] < 0, year == 0, -year, -int(row["pages"] or 0))
+
+
 def book_order(row: dict) -> tuple:
     """Sort key: topic books first and paperwork last; in between, the longest documents first
     (length is the best sign of a book), those of unknown length between long and short ones."""
@@ -140,7 +155,7 @@ def book_order(row: dict) -> tuple:
 
 
 # The Google Sheet layout: the title links to the book; where it came from, Amazon, pages, rights.
-SHEET_COLUMNS = ["Search", "Title (link)", "Authority", "Country", "State", "Source website", "Found on (page)",
+SHEET_COLUMNS = ["Search", "Title (link)", "Year", "Authority", "Country", "State", "Source website", "Found on (page)",
                  "On Amazon", "Amazon link", "Amazon sales rank", "Pages", "Cover page", "Copyright", "Topics",
                  "Found"]  # fmt: skip
 RIGHTS_LABELS = {
@@ -163,7 +178,7 @@ def sheet_table(rows: list[dict], search: str = "") -> list[list[str]]:
     table = [SHEET_COLUMNS]
     for r in rows:
         rights = RIGHTS_LABELS.get(r["rights"], r["rights"])
-        table.append([safe_cell(search), hyperlink(r["link"], r["title"]), *(safe_cell(v) for v in (
+        table.append([safe_cell(search), hyperlink(r["link"], r["title"]), safe_cell(r["year"]), *(safe_cell(v) for v in (
             r["publisher"], r["country"], r["state"], r["website"], r["found_on"], r["on_amazon"], r["amazon_link"],
             r["amazon_best_rank"], r["pages"], r["cover"],
             f"{rights}: {r['rights_note']}" if r["rights_note"] else rights,
@@ -193,15 +208,16 @@ def write_markdown(rows: list[dict], path: Path, heading: str, limit: int = 50) 
     lines = [f"## {heading}", "", f"{len(rows)} book(s).", ""]
     states = any(r.get("state") for r in rows)  # a State column when state websites are listed
     if rows:
-        lines += ["| Title | Pages | Cover |" + (" State |" if states else "") + " Topics | Publisher | Rights |"
-                  " On Amazon |", "|---|---|---|" + ("---|" if states else "") + "---|---|---|---|"]  # fmt: skip
+        lines += ["| Title | Year | Pages | Cover |" + (" State |" if states else "") + " Topics | Publisher | Rights |"
+                  " On Amazon |", "|---|---|---|---|" + ("---|" if states else "") + "---|---|---|---|"]  # fmt: skip
         for r in rows[:limit]:
             title = _md(r["title"]).replace("[", "(").replace("]", ")")
             link = r["link"].replace(" ", "%20").replace(")", "%29")
             versions = int(r.get("versions") or 1)
             if versions > 1:
                 title += f" ({versions} versions)"
-            cells = [f"[{title}]({link})", str(r["pages"]), r.get("cover", ""), *([r["state"]] if states else []),
+            cells = [f"[{title}]({link})", str(r.get("year", "")), str(r["pages"]), r.get("cover", ""),
+                     *([r["state"]] if states else []),
                      _md(r["topics"]),
                      _md(r["publisher"]), r["rights"], r["on_amazon"]]  # fmt: skip
             lines.append("| " + " | ".join(cells) + " |")

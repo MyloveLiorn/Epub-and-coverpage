@@ -290,3 +290,25 @@ def split_language(title: str, file_name: bool = False) -> tuple[str, str]:
 def title_key(title: str) -> str:
     """The title's words without the language it is in, for telling translations of a book apart."""
     return " ".join(_words(split_language(title)[0]))
+
+
+# Years: "2017", "FY26" / "FFY 2026"; a year after next is a number, not a date.
+_YEAR_IN_TEXT = re.compile(r"(?<![\d.])(1[6-9]\d\d|20\d\d)(?![\d.])")
+_SHORT_FY_IN_TEXT = re.compile(r"\bf?fy\s?'?(\d{2})\b", re.IGNORECASE)
+_URL_DATE = re.compile(r"/((?:19|20)\d\d)(?:/|-)(?:0?[1-9]|1[0-2])(?=/|-|$)")
+
+
+def year_in(text: str, latest: int | None = None) -> int | None:
+    """The latest year a text names ("FFY 2026 State Plan" -> 2026, "WV FY26 Plan" -> 2026)."""
+    from datetime import date
+
+    latest = latest or date.today().year + 1
+    years = [int(y) for y in _YEAR_IN_TEXT.findall(text)] + [2000 + int(y) for y in _SHORT_FY_IN_TEXT.findall(text)]
+    years = [y for y in years if y <= latest]
+    return max(years, default=None)
+
+
+def url_year(url: str) -> int | None:
+    """The year a file was put on a site, when its address says: ".../uploads/2023/08/x.pdf" -> 2023."""
+    match = _URL_DATE.search(urlsplit(url).path)
+    return int(match.group(1)) if match else None

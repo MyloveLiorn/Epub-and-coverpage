@@ -176,7 +176,7 @@ def test_cli_export_topics_column_and_summary(army_cli, capsys):
     assert text.startswith("## Found this week\n\n3 book(s).")
     lines = [line for line in text.splitlines() if line.startswith("| [")]
     assert "Visitor Guide" in lines[-1]  # topic books first
-    assert "[Survival Field Manual](https://army.mil/files/FM-21-76.pdf) |  |  | survival |" in text
+    assert "[Survival Field Manual](https://army.mil/files/FM-21-76.pdf) |  |  |  | survival |" in text
 
 
 def test_cli_amazon_checks_topic_books_first(army_cli, capsys, monkeypatch):
@@ -511,7 +511,7 @@ def test_sheet_layout_links_titles_and_keeps_other_cells_plain(army_cli, capsys)
     with open("s.csv", newline="") as fh:
         rows = list(csv.reader(fh))
     assert rows[0] == SHEET_COLUMNS
-    search, title, authority, country, state, website, found_on, on_amazon, *_ = rows[1]
+    search, title, year, authority, country, state, website, found_on, on_amazon, *_ = rows[1]
     assert search == "Survival search" and country == "United States" and website == "army.mil" and state == ""
     assert title == '=HYPERLINK("https://army.mil/files/FM-21-76.pdf", "=cmd|""Survival"" Field Manual")'
     assert on_amazon == "not checked"
@@ -603,7 +603,7 @@ def test_state_search_keeps_a_states_best_books(army_cli, capsys):
     code, out = run(capsys, "merge", "CA.csv", "TX.csv", "--out", "states.md", "--heading", "By state")
     assert code == 0 and "Wrote 2 row(s) from 2 file(s)" in out
     text = open("states.md").read()
-    assert "| Title | Pages | Cover | State |" in text and "| CA |" in text
+    assert "| Title | Year | Pages | Cover | State |" in text and "| CA |" in text
     code, out = run(capsys, "merge", "CA.csv", "TX.csv", "--out", "states.csv")
     with open("states.csv", newline="") as fh:
         assert len(list(csv.reader(fh))) == 3  # one header
@@ -664,3 +664,43 @@ def test_count_pages_fills_the_cover_page_column(army_cli, capsys):
     with open("s.csv", newline="") as fh:
         rows = list(csv.reader(fh))
     assert (rows[1][SHEET_COLUMNS.index("Pages")], rows[1][SHEET_COLUMNS.index("Cover page")]) == ("2", "Yes")
+
+
+def test_publication_years_and_newest_first(army_cli, capsys):
+    from govweb.classify import url_year, year_in
+    from govweb.export import year_order
+
+    assert year_in("FFY 2026 Final Refugee Resettlement Program State Plan") == 2026
+    assert year_in("WV FY26 Refugee State Plan") == 2026
+    assert year_in("July 2017 Volume 65 Number 3 ... since 1950") == 2017
+    assert year_in("Form 5000 instructions") is None and year_in("Chapter 12") is None
+    assert url_year("https://www.state.gov/wp-content/uploads/2023/08/PRM_EVAL_FINAL_REPORT_public.pdf") == 2023
+    assert url_year("https://www.dhs.gov/sites/default/files/2024-07/privacy-pia.pdf") == 2024
+    assert url_year("https://x.gov/files/report.pdf") is None
+    rows = [{"title": "Old", "topics": "t", "year": 1998, "pages": 200, "book_score": 2},
+            {"title": "Paperwork", "topics": "t", "year": 2026, "pages": 3, "book_score": -2},
+            {"title": "Unknown", "topics": "t", "year": "", "pages": 80, "book_score": 2},
+            {"title": "New", "topics": "t", "year": 2025, "pages": 40, "book_score": 2}]  # fmt: skip
+    assert [r["title"] for r in sorted(rows, key=year_order)] == ["New", "Old", "Unknown", "Paperwork"]
+    # merge --sort-by puts the latest first across states
+    import csv as _csv
+
+    for name, years in (("a.csv", ["2001", ""]), ("b.csv", ["2020"])):
+        with open(name, "w", newline="") as fh:
+            _csv.writer(fh).writerows([["title", "year"], *[[f"{name}{y}", y] for y in years]])
+    code, out = run(capsys, "merge", "a.csv", "b.csv", "--out", "m.csv", "--sort-by", "year")
+    with open("m.csv", newline="") as fh:
+        assert [r[1] for r in _csv.reader(fh)] == ["year", "2020", "2001", ""]
+
+
+def test_count_pages_finds_the_year_on_the_first_page(army_cli, capsys):
+    pytest.importorskip("pypdfium2")
+    from tests.pdfmaker import make_pdf, text_page
+
+    pdf = make_pdf(["BT /F1 12 Tf 50 700 Td (July 2017 Volume 65 Number 3) Tj ET\n" + text_page(40)])
+    army_cli.pages["https://army.mil/files/FM-21-76.pdf"] = (200, "application/pdf", pdf)
+    run(capsys, "crawl", "army.mil", "--no-sitemaps")
+    run(capsys, "count-pages", "--keywords", "survival")
+    run(capsys, "export", "--out", "y.csv", "--keywords", "survival")
+    with open("y.csv", newline="") as fh:
+        assert next(csv.DictReader(fh))["year"] == "2017"

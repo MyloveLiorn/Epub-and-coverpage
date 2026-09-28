@@ -7,7 +7,10 @@ Needs pypdfium2 (pip install ".[covers]"); without it nothing is told.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+
+from govweb.classify import year_in
 
 COVER = "cover"
 TITLE_PAGE = "title page"
@@ -23,6 +26,7 @@ FEW_WORDS = 80
 
 @dataclass
 class PageLook:
+    text: str
     words: int
     picture: float  # share of the page covered by pictures
     ink: float  # share of the page that isn't white
@@ -36,7 +40,7 @@ def _look(page) -> PageLook:
     area = max(width * height, 1.0)
     text = page.get_textpage()
     try:
-        words = len(text.get_text_range().split())
+        words = text.get_text_range()
     finally:
         text.close()
     picture = 0.0
@@ -49,7 +53,7 @@ def _look(page) -> PageLook:
                                       bitmap.n_channels)  # fmt: skip
     finally:
         bitmap.close()
-    return PageLook(words, min(picture / area, 1.0), ink, colour)
+    return PageLook(words, len(words.split()), min(picture / area, 1.0), ink, colour)
 
 
 def _ink_and_colour(buffer: bytes, width: int, height: int, stride: int, channels: int) -> tuple[float, float]:
@@ -99,23 +103,39 @@ def available() -> bool:
 
 def cover_of(data: bytes) -> str | None:
     """What the PDF opens with (see classify), or None when it can't be told."""
+    return look_at(data)[0]
+
+
+def _metadata_year(pdf) -> int | None:
+    try:
+        created = pdf.get_metadata_dict().get("CreationDate", "")
+    except Exception:
+        return None
+    match = re.match(r"D?:?((?:19|20)\d\d)", created or "")
+    return int(match.group(1)) if match else None
+
+
+def look_at(data: bytes) -> tuple[str | None, int | None]:
+    """What the PDF opens with (see classify) and the year it was published: the latest year its
+    first page names ("July 2017, Volume 65"), else the year the file was made. (None, None) when
+    the PDF can't be read."""
     try:
         import pypdfium2 as pdfium
     except ImportError:
-        return None
+        return None, None
     try:
         pdf = pdfium.PdfDocument(data)
     except Exception:  # damaged or encrypted
-        return None
+        return None, None
     try:
         if len(pdf) == 0:
-            return None
+            return None, None
         first = _page_look(pdf, 0)
         second = None
         if first.picture >= FULL_PAGE and len(pdf) > 1:  # a scan?
             second = _page_look(pdf, 1)
-        return classify(first, second)
+        return classify(first, second), year_in(first.text) or _metadata_year(pdf)
     except Exception:
-        return None
+        return None, None
     finally:
         pdf.close()

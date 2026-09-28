@@ -29,7 +29,16 @@ from govweb.amazon import check_documents
 from govweb.classify import host_hint_score, topic_phrases
 from govweb.crawl import CrawlLimits, crawl_site
 from govweb.exclude import excluded_states, is_excluded, is_excluded_state_site
-from govweb.export import book_order, dedupe, pick_version, result_rows, variant_groups, write_csv, write_markdown
+from govweb.export import (
+    book_order,
+    dedupe,
+    pick_version,
+    result_rows,
+    variant_groups,
+    write_csv,
+    write_markdown,
+    year_order,
+)
 from govweb.fetch import USER_AGENT, Fetcher
 from govweb.portals import ensure_portal, is_portal, state_portals
 from govweb.registry import LEVEL_NAMES, REGISTRY_URL, parse_registry
@@ -595,16 +604,16 @@ def cmd_count_pages(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     fetcher = make_fetcher(args)
     counted = 0
     for doc in docs:
-        pages, cover = 0, None
+        pages, cover, year = 0, None, None
         if fetcher.allowed(doc["url"]):
             fetched = fetcher.get(doc["url"], max_bytes=int(args.max_mb * 1_000_000))
             if fetched.ok:
                 pages = count_pages(fetched.body) or 0
-                cover = covers.cover_of(fetched.body) if looks else None
-        db.save_pages(conn, doc["url"], pages, (cover or "") if looks else None)
+                cover, year = covers.look_at(fetched.body) if looks else (None, None)
+        db.save_pages(conn, doc["url"], pages, (cover or "") if looks else None, (year or 0) if looks else None)
         counted += bool(pages)
         if args.verbose:
-            say(f"  {pages or '?':>5}  {covers.LABELS.get(cover or '', '?'):<15}  {doc['title'][:70]}")
+            say(f"  {pages or '?':>5}  {year or '':>4}  {covers.LABELS.get(cover or '', '?'):<15}  {doc['title'][:65]}")
     say(f"Counted {counted} of {len(docs)}.")
     return 0
 
@@ -622,6 +631,8 @@ def cmd_export(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
         results = [r for r in results if not r["pages"] or int(r["pages"]) >= args.min_pages]
     if args.sort == "pages":
         results.sort(key=book_order)
+    elif args.sort == "year":
+        results.sort(key=year_order)
     if args.top:
         results = results[: args.top]
     if args.out.suffix == ".md":
@@ -642,6 +653,12 @@ def cmd_merge(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     except ValueError as exc:
         say(f"Error: {exc}")
         return 1
+    if args.sort_by:
+        if args.sort_by not in header:
+            say(f"Error: no column {args.sort_by!r}")
+            return 1
+        column = header.index(args.sort_by)
+        rows.sort(key=lambda r: -int(r[column]) if r[column].isdigit() else 1)  # biggest first, blanks last
     if args.out.suffix == ".md":
         write_markdown([dict(zip(header, r)) for r in rows], args.out, args.heading or "Books found", limit=args.rows)
     else:
@@ -961,8 +978,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--heading", help="title of the .md table")
     p.add_argument("--rows", type=int, default=50, help="rows in the .md table (default 50)")
     p.add_argument("--sheet", metavar="SEARCH", help="write the Google Sheet layout, with SEARCH in its first column")
-    p.add_argument("--sort", choices=["newest", "pages"], default="newest",
-                   help="newest first (default), or the longest first with paperwork last")
+    p.add_argument("--sort", choices=["newest", "pages", "year"], default="newest",
+                   help="newest found first (default); pages: the longest first; year: the latest published "
+                        "first (both with paperwork last)")
     p.add_argument("--top", type=int, help="only the first N rows (after sorting)")
     p.add_argument("--min-pages", type=int, help="leave out documents shorter than this (uncounted ones stay)")
     _narrow_options(p)
@@ -978,6 +996,7 @@ def build_parser() -> argparse.ArgumentParser:
                    "export columns, not the sheet layout)")
     p.add_argument("--heading", help="title of the .md table")
     p.add_argument("--rows", type=int, default=300, help="rows in the .md table (default 300)")
+    p.add_argument("--sort-by", metavar="COLUMN", help='biggest number first in this column, e.g. "year" or "Year"')
     p.set_defaults(func=cmd_merge)
 
     p = sub.add_parser("track-books", help='watch the Google Sheet\'s books for new versions ("Tracked books" tab)')

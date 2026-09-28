@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS documents (
     book_score INTEGER NOT NULL DEFAULT 0,
     pages INTEGER,  -- NULL: not counted yet; 0: couldn't be counted
     cover TEXT,  -- what the PDF opens with (govweb.covers); NULL: not looked at; '': couldn't tell
+    year INTEGER,  -- the year the PDF names on its first page, or it was made; NULL: not looked at; 0: unknown
     first_seen TEXT NOT NULL,
     last_seen TEXT NOT NULL
 );
@@ -116,7 +117,7 @@ MIGRATIONS = {
         "source": "TEXT NOT NULL DEFAULT 'registry'",
         "first_crawled_at": "TEXT",
     },
-    "documents": {"book_score": "INTEGER NOT NULL DEFAULT 0", "pages": "INTEGER", "cover": "TEXT"},
+    "documents": {"book_score": "INTEGER NOT NULL DEFAULT 0", "pages": "INTEGER", "cover": "TEXT", "year": "INTEGER"},
 }
 
 
@@ -464,16 +465,19 @@ def documents_to_count(conn: sqlite3.Connection, books_only: bool = True, covers
         f"""
         SELECT d.*, s.organization, s.suborganization, s.level, s.state
         FROM documents d JOIN sites s ON s.domain = d.domain
-        WHERE d.file_type = 'pdf' AND (d.pages IS NULL {'OR d.cover IS NULL' if covers else ''})
+        WHERE d.file_type = 'pdf' AND (d.pages IS NULL {'OR d.cover IS NULL OR d.year IS NULL' if covers else ''})
               {'AND d.book_score > 0' if books_only else ''}
         ORDER BY d.first_seen DESC, d.book_score DESC
         """
     ).fetchall()
 
 
-def save_pages(conn: sqlite3.Connection, url: str, pages: int, cover: str | None = None) -> None:
-    """Pages (0: couldn't be counted) and what the PDF opens with (govweb.covers; "": couldn't tell)."""
-    conn.execute("UPDATE documents SET pages = ?, cover = COALESCE(?, cover) WHERE url = ?", (pages, cover, url))
+def save_pages(conn: sqlite3.Connection, url: str, pages: int, cover: str | None = None,
+               year: int | None = None) -> None:  # fmt: skip
+    """Pages (0: couldn't be counted), what the PDF opens with (govweb.covers; "": couldn't tell)
+    and its year (0: unknown)."""
+    conn.execute("UPDATE documents SET pages = ?, cover = COALESCE(?, cover), year = COALESCE(?, year) WHERE url = ?",
+                 (pages, cover, year, url))  # fmt: skip
     conn.commit()
 
 

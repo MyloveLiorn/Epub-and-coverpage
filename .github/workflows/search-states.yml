@@ -126,11 +126,12 @@ jobs:
           shopt -s nullglob
           tops=(results/*-top.csv) sheets=(results/*-sheet.csv) alls=(results/*-all.csv)
           [ "${#tops[@]}" -gt 0 ] || { echo "No state finished."; exit 1; }
-          "${web[@]}" merge "${tops[@]}" --out results/states.md --rows 400 \
+          # The latest published first (each state's best books were chosen by length).
+          "${web[@]}" merge "${tops[@]}" --out results/states.md --rows 400 --sort-by year \
             --heading "The best books on $subject on each state's websites"
-          "${web[@]}" merge "${tops[@]}" --out results/states.csv
-          "${web[@]}" merge "${alls[@]}" --out results/states-all.csv
-          "${web[@]}" merge "${sheets[@]}" --out results/states-sheet.csv
+          "${web[@]}" merge "${tops[@]}" --out results/states.csv --sort-by year
+          "${web[@]}" merge "${alls[@]}" --out results/states-all.csv --sort-by year
+          "${web[@]}" merge "${sheets[@]}" --out results/states-sheet.csv --sort-by Year
           {
             echo "## States"
             echo

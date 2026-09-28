@@ -48,16 +48,16 @@ if [[ " ${sites[*]} " =~ nasa\.gov[\ /] ]]; then
   done
 fi
 "${web[@]}" amazon "${narrow[@]}" --provider "$AMAZON_PROVIDER" --limit 500 --config "$CONFIG" --verbose
-# Page counts: the best sign of a book. Tables list the longest documents first, paperwork last.
+# Page counts, covers and years (count-pages). Tables list the latest published first, paperwork last.
 "${web[@]}" count-pages "${narrow[@]}" --all-documents --limit "$PAGE_COUNTS" --verbose
-"${web[@]}" export "${narrow[@]}" --all-documents --sort pages --config "$CONFIG" --out "$OUT/books.csv"
-"${web[@]}" export "${narrow[@]}" --all-documents --sort pages --config "$CONFIG" --out "$OUT/books.md" --rows 300 \
+"${web[@]}" export "${narrow[@]}" --all-documents --sort year --config "$CONFIG" --out "$OUT/books.csv"
+"${web[@]}" export "${narrow[@]}" --all-documents --sort year --config "$CONFIG" --out "$OUT/books.md" --rows 300 \
   --heading "Documents about \"$KEYWORDS\" on ${sites[*]}"
 
 # The Google Sheet: a tab per search, when the sheet's secrets are set.
 if [ -n "${GOOGLE_SERVICE_ACCOUNT_JSON:-}" ] && [ -n "${GOOGLE_SHEET_ID:-}" ]; then
   tab="Search - $(echo "$KEYWORDS" | tr -cd '[:alnum:] ,-' | cut -c1-80)"
-  "${web[@]}" export "${narrow[@]}" --all-documents --sort pages --config "$CONFIG" --out "$OUT/sheet.csv" \
+  "${web[@]}" export "${narrow[@]}" --all-documents --sort year --config "$CONFIG" --out "$OUT/sheet.csv" \
     --sheet "$KEYWORDS"
   "${web[@]}" sheet --formulas --tab "$tab=$OUT/sheet.csv"
 fi
