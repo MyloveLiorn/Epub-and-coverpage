@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Search chosen websites for a subject, on demand ("Search sites" workflow): crawl the sites and
-# their sub-sites following links about the keywords first, check the matching books on Amazon,
-# and print the table. It starts from the weekly run's database but doesn't save to it.
+# their sub-sites following links about the keywords first (plus NASA's report server when a NASA
+# site is chosen), check the matching books on Amazon, and print the table. It starts from the weekly run's database but doesn't save to it.
 # Run from the repository root:
 #   SITES="nasa.gov history.nasa.gov" KEYWORDS="Apollo 13, Apollo XIII" automation/search.sh
 set -uo pipefail
@@ -35,6 +35,16 @@ narrow=(--sites "${sites[@]}" --keywords "$KEYWORDS")
 "${web[@]}" crawl "${sites[@]}" --keywords "$KEYWORDS" --max-pages "$PAGES" --max-depth 5 \
   --max-minutes "$MINUTES" --with-subsites --max-subsites "$SUBSITES" --subsite-pages "$SUBSITE_PAGES" \
   --skip-recent-days 0 --workers 8
+# NASA's reports live in its Technical Reports Server, a search application a crawl can't read;
+# it has an open API, searched here for each keyword when a NASA site is chosen.
+if [[ " ${sites[*]} " =~ nasa\.gov[\ /] ]]; then
+  IFS=',' read -r -a keywords <<< "$KEYWORDS"
+  for keyword in "${keywords[@]}"; do
+    keyword="${keyword#"${keyword%%[![:space:]]*}"}"   # trim spaces
+    keyword="${keyword%"${keyword##*[![:space:]]}"}"
+    [ -n "$keyword" ] && "${web[@]}" ntrs "$keyword" --limit 300
+  done
+fi
 "${web[@]}" amazon "${narrow[@]}" --provider "$AMAZON_PROVIDER" --limit 500 --config "$CONFIG" --verbose
 "${web[@]}" export "${narrow[@]}" --all-documents --config "$CONFIG" --out "$OUT/books.csv"
 "${web[@]}" export "${narrow[@]}" --all-documents --config "$CONFIG" --out "$OUT/books.md" --rows 300 \

@@ -267,6 +267,23 @@ def _subsites_to_crawl(
     return _by_promise(subsites, args.crawl_keywords)[: args.max_subsites]
 
 
+def cmd_ntrs(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
+    from govweb import ntrs
+
+    _ensure_sites(conn, ["ntrs.nasa.gov"])
+    try:
+        citations = ntrs.search(make_json_http(), args.query, limit=args.limit)
+    except HttpError as exc:
+        say(f"Error: {exc}")
+        return 2
+    result = ntrs.to_result(citations)
+    known = {r[0] for r in conn.execute("SELECT url FROM documents WHERE domain = 'ntrs.nasa.gov'")}
+    db.store_result(conn, result)
+    say(f"NASA Technical Reports Server: {len(citations)} report(s) for {args.query!r}, {len(result.documents)} "
+        f"with a public file ({len(set(result.documents) - known)} not seen before).")  # fmt: skip
+    return 0
+
+
 def cmd_add(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     host = _clean_host(args.url)
     abbr = STATE_ABBR[resolve_state(args.state)] if args.state else None
@@ -685,6 +702,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--subsite-pages", type=int, help="pages fetched per sub-site (default: --max-pages)")
     p.add_argument("--subsites-only", action="store_true", help="crawl only the sub-sites of the chosen sites")
     p.set_defaults(func=cmd_crawl)
+
+    p = sub.add_parser("ntrs", help="search NASA's Technical Reports Server (reports with their PDFs)")
+    p.add_argument("query", help='words to search for, e.g. "Apollo 13"')
+    p.add_argument("--limit", type=int, default=300, help="at most this many reports (default 300)")
+    p.set_defaults(func=cmd_ntrs)
 
     p = sub.add_parser("docs", help="documents found by crawling")
     _document_filters(p)

@@ -323,3 +323,37 @@ def test_cli_export_and_amazon_narrowed_to_sites_and_keywords(army_cli, capsys, 
     monkeypatch.setattr("govbooks.market.build_provider", lambda name, http, config: provider)
     run(capsys, "amazon", "--sites", "home.army.mil", "--keywords", "visitor guide")
     assert provider.queries == []  # "Visitor Guide" is too generic to search; nothing else matches
+
+
+NTRS_PAGE = {
+    "stats": {"total": 3},
+    "results": [
+        {"id": 19700076776, "title": "Apollo 13 mission report", "distribution": "PUBLIC",
+         "downloads": [{"name": "19700076776.pdf", "links": {"original": "/api/citations/19700076776/downloads/19700076776.pdf"}}]},
+        {"id": 19700024568, "title": "Report of Apollo 13 Review Board", "downloads": [{"name": "19700024568.pdf"}]},
+        {"id": 19710000001, "title": "Apollo 13 lunar photography", "downloads": []},  # no file
+    ],
+}  # fmt: skip
+
+
+def test_ntrs_search_and_documents(fake_http):
+    from govweb import ntrs
+
+    fake_http.add("GET", "ntrs.nasa.gov/api/citations/search", NTRS_PAGE)
+    citations = ntrs.search(fake_http, "Apollo 13")
+    assert len(citations) == 3 and len(fake_http.calls) == 1  # all results in one page
+    assert fake_http.calls[0][2]["params"] == {"q": "Apollo 13", "page.size": 100, "page.from": 0}
+    docs = ntrs.to_result(citations).documents
+    assert sorted(d.title for d in docs.values()) == ["Apollo 13 mission report", "Report of Apollo 13 Review Board"]
+    board = docs["https://ntrs.nasa.gov/api/citations/19700024568/downloads/19700024568.pdf"]
+    assert (board.found_on, board.file_type) == ("https://ntrs.nasa.gov/citations/19700024568", "pdf")
+
+
+def test_cli_ntrs_results_join_the_table(army_cli, capsys, monkeypatch, fake_http):
+    fake_http.add("GET", "ntrs.nasa.gov/api/citations/search", NTRS_PAGE)
+    monkeypatch.setattr(cli, "make_json_http", lambda: fake_http)
+    code, out = run(capsys, "ntrs", "Apollo 13")
+    assert "3 report(s) for 'Apollo 13', 2 with a public file (2 not seen before)" in out
+    code, out = run(capsys, "export", "--out", "n.csv", "--sites", "nasa.gov", "--keywords", "Apollo 13", "--all-documents")
+    with open("n.csv", newline="") as fh:
+        assert sorted(r["title"] for r in csv.DictReader(fh)) == ["Apollo 13 mission report", "Report of Apollo 13 Review Board"]
