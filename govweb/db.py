@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS documents (
     found_via TEXT,
     book_score INTEGER NOT NULL DEFAULT 0,
     pages INTEGER,  -- NULL: not counted yet; 0: couldn't be counted
+    cover TEXT,  -- what the PDF opens with (govweb.covers); NULL: not looked at; '': couldn't tell
     first_seen TEXT NOT NULL,
     last_seen TEXT NOT NULL
 );
@@ -115,7 +116,7 @@ MIGRATIONS = {
         "source": "TEXT NOT NULL DEFAULT 'registry'",
         "first_crawled_at": "TEXT",
     },
-    "documents": {"book_score": "INTEGER NOT NULL DEFAULT 0", "pages": "INTEGER"},
+    "documents": {"book_score": "INTEGER NOT NULL DEFAULT 0", "pages": "INTEGER", "cover": "TEXT"},
 }
 
 
@@ -456,20 +457,23 @@ def seed_urls(conn: sqlite3.Connection, domain: str, limit: int = 50) -> list[st
 # --- Amazon checks ------------------------------------------------------------------
 
 
-def documents_to_count(conn: sqlite3.Connection, books_only: bool = True) -> list[sqlite3.Row]:
-    """PDFs whose pages haven't been counted, with their site's owner; newest first."""
+def documents_to_count(conn: sqlite3.Connection, books_only: bool = True, covers: bool = False) -> list[sqlite3.Row]:
+    """PDFs whose pages haven't been counted (with ``covers``, or whose cover hasn't been looked
+    at), with their site's owner; newest first."""
     return conn.execute(
         f"""
         SELECT d.*, s.organization, s.suborganization, s.level, s.state
         FROM documents d JOIN sites s ON s.domain = d.domain
-        WHERE d.file_type = 'pdf' AND d.pages IS NULL {'AND d.book_score > 0' if books_only else ''}
+        WHERE d.file_type = 'pdf' AND (d.pages IS NULL {'OR d.cover IS NULL' if covers else ''})
+              {'AND d.book_score > 0' if books_only else ''}
         ORDER BY d.first_seen DESC, d.book_score DESC
         """
     ).fetchall()
 
 
-def save_pages(conn: sqlite3.Connection, url: str, pages: int) -> None:
-    conn.execute("UPDATE documents SET pages = ? WHERE url = ?", (pages, url))
+def save_pages(conn: sqlite3.Connection, url: str, pages: int, cover: str | None = None) -> None:
+    """Pages (0: couldn't be counted) and what the PDF opens with (govweb.covers; "": couldn't tell)."""
+    conn.execute("UPDATE documents SET pages = ?, cover = COALESCE(?, cover) WHERE url = ?", (pages, cover, url))
     conn.commit()
 
 

@@ -572,10 +572,13 @@ def _narrow(rows: list[sqlite3.Row], args: argparse.Namespace) -> list[sqlite3.R
 
 
 def cmd_count_pages(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
-    """Download PDFs whose pages haven't been counted (books on the topics first) and count them."""
+    """Download PDFs whose pages haven't been counted (books on the topics first), count them, and
+    tell whether each opens with a cover (when pypdfium2 is installed)."""
+    from govweb import covers
     from govweb.pdfpages import count_pages
 
-    docs = _narrow(db.documents_to_count(conn, books_only=not args.all_documents), args)
+    looks = covers.available()
+    docs = _narrow(db.documents_to_count(conn, books_only=not args.all_documents, covers=looks), args)
     # One version of each book: not the same guide in twenty languages.
     docs = [pick_version(g, itemgetter("title"), itemgetter("url"))
             for g in variant_groups(docs, itemgetter("title"), itemgetter("url"), itemgetter("domain"))]  # fmt: skip
@@ -592,14 +595,16 @@ def cmd_count_pages(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     fetcher = make_fetcher(args)
     counted = 0
     for doc in docs:
-        pages = 0
+        pages, cover = 0, None
         if fetcher.allowed(doc["url"]):
             fetched = fetcher.get(doc["url"], max_bytes=int(args.max_mb * 1_000_000))
-            pages = (count_pages(fetched.body) or 0) if fetched.ok else 0
-        db.save_pages(conn, doc["url"], pages)
+            if fetched.ok:
+                pages = count_pages(fetched.body) or 0
+                cover = covers.cover_of(fetched.body) if looks else None
+        db.save_pages(conn, doc["url"], pages, (cover or "") if looks else None)
         counted += bool(pages)
         if args.verbose:
-            say(f"  {pages or '?':>5}  {doc['title'][:80]}")
+            say(f"  {pages or '?':>5}  {covers.LABELS.get(cover or '', '?'):<15}  {doc['title'][:70]}")
     say(f"Counted {counted} of {len(docs)}.")
     return 0
 

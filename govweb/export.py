@@ -12,11 +12,12 @@ from urllib.parse import unquote, urlsplit
 
 from govweb.amazon import amazon_link, amazon_status
 from govweb.classify import split_language, title_from_url, title_key
+from govweb.covers import LABELS as COVER_LABELS
 from govweb.watch import Matcher, matching_topics, rights_of
 
 # publisher: the authority (agency) that published it; website and found_on: where it was found.
 COLUMNS = [
-    "found", "new", "title", "topics", "type", "pages", "versions", "publisher", "country", "level", "state", "website",
+    "found", "new", "title", "topics", "type", "pages", "cover", "versions", "publisher", "country", "level", "state", "website",
     "found_on", "link", "rights", "on_amazon", "amazon_editions", "amazon_best_rank", "amazon_link", "book_score",
     "rights_note",
 ]  # fmt: skip
@@ -57,6 +58,7 @@ def result_rows(
                 "topics": ", ".join(matching_topics(row, topics or {})),
                 "type": row["file_type"],
                 "pages": row["pages"] or "",
+                "cover": COVER_LABELS.get(row["cover"] or "", "") if "cover" in row.keys() else "",
                 "versions": 1,
                 "publisher": publisher_of(row),
                 "country": "United States",
@@ -122,6 +124,8 @@ def dedupe(rows: list[dict]) -> list[dict]:
         row = dict(pick_version(group, itemgetter("title"), itemgetter("link")))
         if not row["pages"]:
             row["pages"] = max((r["pages"] for r in group if r["pages"]), default="")
+        if not row.get("cover"):
+            row["cover"] = next((r["cover"] for r in group if r.get("cover")), "")
         row["versions"] = len(group)
         out.append(row)
     return out
@@ -137,7 +141,8 @@ def book_order(row: dict) -> tuple:
 
 # The Google Sheet layout: the title links to the book; where it came from, Amazon, pages, rights.
 SHEET_COLUMNS = ["Search", "Title (link)", "Authority", "Country", "State", "Source website", "Found on (page)",
-                 "On Amazon", "Amazon link", "Amazon sales rank", "Pages", "Copyright", "Topics", "Found"]  # fmt: skip
+                 "On Amazon", "Amazon link", "Amazon sales rank", "Pages", "Cover page", "Copyright", "Topics",
+                 "Found"]  # fmt: skip
 RIGHTS_LABELS = {
     "public_domain": "Public domain", "likely_public_domain": "Likely public domain",
     "check": "Check the document", "likely_copyrighted": "Likely copyrighted", "unknown": "Unknown",
@@ -160,7 +165,8 @@ def sheet_table(rows: list[dict], search: str = "") -> list[list[str]]:
         rights = RIGHTS_LABELS.get(r["rights"], r["rights"])
         table.append([safe_cell(search), hyperlink(r["link"], r["title"]), *(safe_cell(v) for v in (
             r["publisher"], r["country"], r["state"], r["website"], r["found_on"], r["on_amazon"], r["amazon_link"],
-            r["amazon_best_rank"], r["pages"], f"{rights}: {r['rights_note']}" if r["rights_note"] else rights,
+            r["amazon_best_rank"], r["pages"], r["cover"],
+            f"{rights}: {r['rights_note']}" if r["rights_note"] else rights,
             r["topics"], r["found"],
         ))])  # fmt: skip
     return table
@@ -187,15 +193,16 @@ def write_markdown(rows: list[dict], path: Path, heading: str, limit: int = 50) 
     lines = [f"## {heading}", "", f"{len(rows)} book(s).", ""]
     states = any(r.get("state") for r in rows)  # a State column when state websites are listed
     if rows:
-        lines += ["| Title | Pages |" + (" State |" if states else "") + " Topics | Publisher | Rights | On Amazon |",
-                  "|---|---|" + ("---|" if states else "") + "---|---|---|---|"]  # fmt: skip
+        lines += ["| Title | Pages | Cover |" + (" State |" if states else "") + " Topics | Publisher | Rights |"
+                  " On Amazon |", "|---|---|---|" + ("---|" if states else "") + "---|---|---|---|"]  # fmt: skip
         for r in rows[:limit]:
             title = _md(r["title"]).replace("[", "(").replace("]", ")")
             link = r["link"].replace(" ", "%20").replace(")", "%29")
             versions = int(r.get("versions") or 1)
             if versions > 1:
                 title += f" ({versions} versions)"
-            cells = [f"[{title}]({link})", str(r["pages"]), *([r["state"]] if states else []), _md(r["topics"]),
+            cells = [f"[{title}]({link})", str(r["pages"]), r.get("cover", ""), *([r["state"]] if states else []),
+                     _md(r["topics"]),
                      _md(r["publisher"]), r["rights"], r["on_amazon"]]  # fmt: skip
             lines.append("| " + " | ".join(cells) + " |")
         if len(rows) > limit:

@@ -67,7 +67,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install
-        run: pip install .
+        run: pip install ".[covers]"
 
       - name: Start from the weekly run's database
         run: |

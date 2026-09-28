@@ -13,6 +13,7 @@ dependencies = ["requests>=2.31"]
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 sheets = ["google-auth>=2.20"]
+covers = ["pypdfium2>=4"]  # tells whether a PDF opens with a cover
 
 [project.scripts]
 govbooks = "govbooks.cli:main"

@@ -37,7 +37,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install
-        run: pip install ".[sheets]"
+        run: pip install ".[sheets,covers]"
 
       - name: Start from the weekly run's database
         run: |

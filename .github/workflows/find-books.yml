@@ -43,7 +43,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install
-        run: pip install ".[sheets]"
+        run: pip install ".[sheets,covers]"
 
       - name: Restore previous results from the data branch
         run: |

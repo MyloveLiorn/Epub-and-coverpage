@@ -176,7 +176,7 @@ def test_cli_export_topics_column_and_summary(army_cli, capsys):
     assert text.startswith("## Found this week\n\n3 book(s).")
     lines = [line for line in text.splitlines() if line.startswith("| [")]
     assert "Visitor Guide" in lines[-1]  # topic books first
-    assert "[Survival Field Manual](https://army.mil/files/FM-21-76.pdf) |  | survival |" in text
+    assert "[Survival Field Manual](https://army.mil/files/FM-21-76.pdf) |  |  | survival |" in text
 
 
 def test_cli_amazon_checks_topic_books_first(army_cli, capsys, monkeypatch):
@@ -603,7 +603,7 @@ def test_state_search_keeps_a_states_best_books(army_cli, capsys):
     code, out = run(capsys, "merge", "CA.csv", "TX.csv", "--out", "states.md", "--heading", "By state")
     assert code == 0 and "Wrote 2 row(s) from 2 file(s)" in out
     text = open("states.md").read()
-    assert "| Title | Pages | State |" in text and "| CA |" in text
+    assert "| Title | Pages | Cover | State |" in text and "| CA |" in text
     code, out = run(capsys, "merge", "CA.csv", "TX.csv", "--out", "states.csv")
     with open("states.csv", newline="") as fh:
         assert len(list(csv.reader(fh))) == 3  # one header
@@ -630,3 +630,37 @@ def test_states_whose_publications_cant_be_reused_are_skipped(army_cli, capsys):
     with open("all.csv", newline="") as fh:
         sites = {r["website"] for r in csv.DictReader(fh)}
     assert "library.ca.gov" in sites and "tsl.texas.gov" not in sites
+
+
+def test_covers_are_told_from_the_first_page():
+    pytest.importorskip("pypdfium2")
+    from govweb.covers import COVER, NO_COVER, SCANNED, TITLE_PAGE, cover_of
+    from tests.pdfmaker import make_pdf, text_page
+
+    photo = bytes([200, 40, 40, 30, 120, 200, 40, 160, 60, 220, 200, 40])
+    grey = bytes([90] * 12)
+    assert cover_of(make_pdf(["q 612 0 0 450 0 200 cm /Im1 Do Q\nBT /F1 20 Tf 60 100 Td (Final Report) Tj ET"],
+                             image=photo)) == COVER  # a photo, like a State Department evaluation
+    assert cover_of(make_pdf(["0.1 0.3 0.7 rg 0 450 612 342 re f\nBT /F1 36 Tf 60 600 Td (Report) Tj ET"])) == COVER
+    assert cover_of(make_pdf([text_page(50)])) == NO_COVER  # a contents page, like the Attorneys' Bulletin
+    assert cover_of(make_pdf(["0.85 g 40 100 150 650 re f\n0 g\n" + text_page(45)])) == NO_COVER
+    assert cover_of(make_pdf(["BT /F1 36 Tf 80 500 Td (Refugee Health Manual) Tj ET"])) == TITLE_PAGE
+    assert cover_of(make_pdf(["q 612 0 0 792 0 0 cm /Im1 Do Q", text_page(40)], image=grey)) == COVER
+    assert cover_of(make_pdf(["q 612 0 0 792 0 0 cm /Im1 Do Q"] * 2, image=grey)) == SCANNED
+    assert cover_of(b"not a pdf") is None
+
+
+def test_count_pages_fills_the_cover_page_column(army_cli, capsys):
+    pytest.importorskip("pypdfium2")
+    from govweb.export import SHEET_COLUMNS
+    from tests.pdfmaker import make_pdf, text_page
+
+    pdf = make_pdf(["0.1 0.3 0.7 rg 0 0 612 792 re f", text_page(40)])
+    army_cli.pages["https://army.mil/files/FM-21-76.pdf"] = (200, "application/pdf", pdf)
+    run(capsys, "crawl", "army.mil", "--no-sitemaps")
+    code, out = run(capsys, "count-pages", "--keywords", "survival", "--verbose")
+    assert "Counted 1 of 1." in out and "Yes" in out
+    run(capsys, "export", "--out", "s.csv", "--keywords", "survival", "--sheet", "Survival")
+    with open("s.csv", newline="") as fh:
+        rows = list(csv.reader(fh))
+    assert (rows[1][SHEET_COLUMNS.index("Pages")], rows[1][SHEET_COLUMNS.index("Cover page")]) == ("2", "Yes")

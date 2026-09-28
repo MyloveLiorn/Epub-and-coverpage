@@ -1,4 +1,4 @@
 # Changing this file and pushing the change starts the "Search states" workflow for every state
 # (see .github/workflows/search-states.yml); the Actions tab's "Run workflow" button can also
 # choose states. Last request:
-2026-09-28 immigration, 5 books per state of 10+ pages, without the 13 states whose publications can't be reused
+2026-09-28 immigration, 5 books per state of 10+ pages, without the 13 states whose publications can't be reused, with a Cover page column
