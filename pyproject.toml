@@ -23,6 +23,7 @@ include = ["govbooks*", "govweb*"]
 
 [tool.setuptools.package-data]
 govbooks = ["example.toml", "data/*.json"]
+govweb = ["data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

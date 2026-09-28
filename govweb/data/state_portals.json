@@ -1,0 +1,13 @@
+{
+  "_note": "Each state's official government website, where a state's search starts. The crawler follows redirects (arkansas.gov -> portal.arkansas.gov).",
+  "AL": "alabama.gov", "AK": "alaska.gov", "AZ": "az.gov", "AR": "arkansas.gov", "CA": "ca.gov",
+  "CO": "colorado.gov", "CT": "ct.gov", "DE": "delaware.gov", "FL": "myflorida.com", "GA": "georgia.gov",
+  "HI": "hawaii.gov", "ID": "idaho.gov", "IL": "illinois.gov", "IN": "in.gov", "IA": "iowa.gov",
+  "KS": "kansas.gov", "KY": "kentucky.gov", "LA": "louisiana.gov", "ME": "maine.gov", "MD": "maryland.gov",
+  "MA": "mass.gov", "MI": "michigan.gov", "MN": "mn.gov", "MS": "ms.gov", "MO": "mo.gov",
+  "MT": "mt.gov", "NE": "nebraska.gov", "NV": "nv.gov", "NH": "nh.gov", "NJ": "nj.gov",
+  "NM": "newmexico.gov", "NY": "ny.gov", "NC": "nc.gov", "ND": "nd.gov", "OH": "ohio.gov",
+  "OK": "oklahoma.gov", "OR": "oregon.gov", "PA": "pa.gov", "RI": "ri.gov", "SC": "sc.gov",
+  "SD": "sd.gov", "TN": "tn.gov", "TX": "texas.gov", "UT": "utah.gov", "VT": "vermont.gov",
+  "VA": "virginia.gov", "WA": "wa.gov", "WV": "wv.gov", "WI": "wisconsin.gov", "WY": "wyo.gov"
+}
