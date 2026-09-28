@@ -31,8 +31,9 @@ def safe_cell(value: object) -> str:
 
 
 # The .gov registry often names the office that runs a domain, not the one that publishes on it.
-_IT_OFFICE = re.compile(r"chief information officer|information technology|\bocio\b|web services|digital services",
-                        re.IGNORECASE)  # fmt: skip
+# state.gov is registered to its Bureau of Global Public Affairs, dhs.gov to the Management Directorate.
+_IT_OFFICE = re.compile(r"chief information officer|information technology|\bocio\b|web services|digital services|"
+                        r"public affairs|management directorate", re.IGNORECASE)  # fmt: skip
 
 
 def publisher_of(row: sqlite3.Row) -> str:

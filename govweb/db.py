@@ -159,12 +159,16 @@ def _upgrade_data(conn: sqlite3.Connection) -> None:
             [(title, book_score(title, url), url) for title, url in renamed],
         )
         conn.execute("DELETE FROM amazon_checks WHERE matching > 0")
-    if version < 3:  # letters to Congress, court filings and slides count as paperwork now
+    if version < 3:  # letters to Congress, court filings, slides and the like count as paperwork now,
+        # and titles lose file sizes ("[PDF, 1 MB]")
         rows = conn.execute("SELECT url, title, book_score FROM documents").fetchall()
-        conn.executemany(
-            "UPDATE documents SET book_score = ? WHERE url = ?",
-            [(score, r["url"]) for r in rows if (score := book_score(r["title"], r["url"])) != r["book_score"]],
-        )
+        changed = []
+        for r in rows:
+            title = clean_title(r["title"]) or r["title"]
+            score = book_score(title, r["url"])
+            if (title, score) != (r["title"], r["book_score"]):
+                changed.append((title, score, r["url"]))
+        conn.executemany("UPDATE documents SET title = ?, book_score = ? WHERE url = ?", changed)
     if version < DATA_VERSION:
         conn.execute(f"PRAGMA user_version = {DATA_VERSION}")
         conn.commit()

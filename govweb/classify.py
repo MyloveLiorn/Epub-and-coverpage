@@ -89,10 +89,16 @@ def title_from_url(url: str) -> str:
     return " ".join(re.split(r"[\s_\-+.]+", name)).strip()
 
 
+_FILE_SIZE = re.compile(
+    r"\s*(?:[\[(]\s*(?:(?:pdf|docx?|epub)\b[\s,|:-]*)?(?:[\d.,]+\s*(?:kb|mb|gb|bytes?)\b)?\s*[\])]?)\s*$", re.IGNORECASE
+)
+
+
 def clean_title(text: str) -> str:
     """ "K9H2F Handbook 2026 K9H2F Handbook 2026" -> "K9H2F Handbook 2026", "Don&#39;t" -> "Don't",
-    and no trailing dot or separator."""
+    and no trailing dot, separator or file size ("[PDF, 1 MB]", or a "[" left of one)."""
     text = " ".join(html.unescape(html.unescape(text)).split())
+    text = _FILE_SIZE.sub("", text)
     words = text.split()
     half = len(words) // 2
     if half and len(words) % 2 == 0 and words[:half] == words[half:]:
@@ -145,7 +151,10 @@ PAPERWORK_WORDS = {
     "representative": -3, "senator": -3, "congressman": -3, "congresswoman": -3, "dkt": -3, "ecf": -3,
     "docket": -2, "exhibit": -2, "filing": -2, "motion": -2, "complaint": -2, "affidavit": -2, "stipulation": -2,
     "presentation": -2, "powerpoint": -2, "slide": -2, "webinar": -2, "infographic": -2, "poster": -2,
-    "factsheet": -2, "engagement": -1, "talking": -1, "listening": -1, "sheet": -1, "transcript": -1,
+    "factsheet": -2, "engagement": -2, "talking": -1, "listening": -1, "sheet": -2, "transcript": -1,
+    # Privacy impact assessments, grant notices and lists, meeting invitations and speeches.
+    "pia": -3, "privacy": -1, "nofo": -3, "foa": -3, "recipient": -2, "roster": -2, "invitation": -2,
+    "remarks": -2, "stakeholder": -1, "template": -2, "response": -1, "workload": -1,
 }  # fmt: skip
 
 # A court case's name: "Ahmed v. DHS", "Doe vs Smith"; but not "Title V Grants" or "Part V".
@@ -199,8 +208,27 @@ _LANG_END = re.compile(
 )
 _LANG_START = re.compile(rf"^\s*[(\[]?\s*(?:{_LANG}){_QUALIFIER}\s*[)\]]?\s*[-–—:|]\s*", re.IGNORECASE)
 _LANG_BRACKETS = re.compile(rf"[(\[]\s*(?:{_LANG}){_QUALIFIER}\s*[)\]]", re.IGNORECASE)
-# Language codes at the end of a file name: "guide-es", "guide_SP".
-_LANG_CODE_END = re.compile(r"[\s_\-(\[]+(?:es|sp|spa|fr|zh|ko|vi|ru|ht|pt|tl|ar|en|eng)[)\]]?\s*$", re.IGNORECASE)
+# Language codes at the end of a file name ("guide-es", "guide_SP", "guide-RUS"), and what often
+# follows them ("guide-french_0", "guide 508 PSH", "guide-final").
+_LANG_CODE_END = re.compile(
+    r"[\s_\-(\[]+(?:es|sp|spa|esp|fr|fra|fre|zh|chi|ko|kor|vi|vie|ru|rus|ht|hat|pt|por|tl|tag|ar|ara|en|eng|psh|pus|dar|"
+    r"prs|far|fas|urd|hin|ben|som|swa|tir|amh|ukr|pol|nep|bur|mya|arm|hye)[)\]]?\s*$",
+    re.IGNORECASE,
+)
+_FILE_NAME_TAIL = re.compile(r"(?:[\s_-]+(?:final|tnc|hc|508c?|v\d+|rev\d*|web))+\s*$", re.IGNORECASE)
+_NUMBER_TAIL = re.compile(r"[\s_-]+\d{1,2}\s*$")  # "guide-french_0"; only dropped after a language
+
+
+def _language_tail(name: str) -> tuple[str, list[str]]:
+    """A file name without the language at its end, and that language (none: the name as it is)."""
+    base = _FILE_NAME_TAIL.sub("", name)
+    for candidate in (base, _NUMBER_TAIL.sub("", base)):
+        found: list[str] = []
+        stripped = _LANG_END.sub(lambda m, found=found: found.append(m.group(0)) or " ", candidate)
+        stripped = _LANG_CODE_END.sub(lambda m, found=found: found.append(m.group(0)) or "", stripped)
+        if found and stripped.strip(" -_"):
+            return stripped, found
+    return name, []
 
 
 def split_language(title: str, file_name: bool = False) -> tuple[str, str]:
@@ -213,7 +241,11 @@ def split_language(title: str, file_name: bool = False) -> tuple[str, str]:
         if stripped.strip(" -|:._,"):  # a title that is only a language stays as it is
             title, language = stripped, language + found
     if file_name:
-        title = _LANG_CODE_END.sub(lambda m: language.append(m.group(0)) or "", title)
+        for _ in range(3):  # "guide 508 PSH", "guide french 0": the tail, then the language
+            title, found = _language_tail(title)
+            if not found:
+                break
+            language += found
     base = " ".join(title.split()).strip(" -|:._,")
     return base, " ".join(" ".join(part.strip(" -|:._,()[]") for part in language).lower().split())
 

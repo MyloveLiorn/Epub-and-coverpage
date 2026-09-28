@@ -327,6 +327,13 @@ def test_one_row_per_book_whatever_its_language():
     # A language inside the title is part of it: a different book.
     assert title_key("Chinese Immigration to America") != title_key("Korean Immigration to America")
     assert split_language("Spanish") == ("Spanish", "")
+    # File names: codes, and numbers or accessibility marks around them; not chapter numbers.
+    assert split_language("info guide prospective asylum applicants french 0", file_name=True)[0] == (
+        "info guide prospective asylum applicants"
+    )
+    assert split_language("Information Sheet Safe Haven 508 PSH", file_name=True)[0] == "Information Sheet Safe Haven 508"
+    assert split_language("STEM Visa Guide RUS", file_name=True) == ("STEM Visa Guide", "rus")
+    assert split_language("Chapter 12", file_name=True) == ("Chapter 12", "")
 
     def row(title, link, pages=""):
         return {"website": "uscis.gov", "title": title, "link": "https://www.uscis.gov/files/" + link, "pages": pages}
@@ -344,6 +351,21 @@ def test_one_row_per_book_whatever_its_language():
     assert book_score("Response to Representative Bonamici", "https://a.gov/x.pdf") < 0
     assert book_score("Ahmed v. DHS Status Report", "https://a.gov/x.pdf") < 0
     assert book_score("Title V Guide to Refugee Programs", "https://a.gov/x.pdf") > 0
+    assert book_score("DHS/USCIS/PIA-056 USCIS Electronic Immigration System", "https://a.gov/x.pdf") < 0
+    assert book_score("Asylum Quarterly Stakeholder Engagement", "https://a.gov/x.pdf") < 0
+
+
+def test_titles_lose_file_sizes():
+    from govweb.classify import clean_title
+
+    assert clean_title("Evaluation of Livelihoods Support to Syrian Refugees [") == (
+        "Evaluation of Livelihoods Support to Syrian Refugees"
+    )
+    assert clean_title("Refugee Programs in the Caucasus [1 MB]") == "Refugee Programs in the Caucasus"
+    assert clean_title("Refugee Employment (139 KB)") == "Refugee Employment"
+    assert clean_title("Annual Report (PDF, 2.3 MB)") == "Annual Report"
+    assert clean_title("Annual Report (2019)") == "Annual Report (2019)"
+    assert clean_title("Asylum Guide (Spanish)") == "Asylum Guide (Spanish)"
 
 
 def test_book_order_puts_long_documents_first_and_paperwork_last():
@@ -481,3 +503,19 @@ def test_excluded_sites_and_paths_are_never_searched_or_listed(army_cli, capsys)
     run(capsys, "export", "--out", "g.csv", "--sites", "govinfo.gov", "--all-documents")
     with open("g.csv", newline="") as fh:
         assert [r["title"] for r in csv.DictReader(fh)] == ["Guide to the Budget of the United States"]
+
+
+def test_the_authority_is_the_agency_not_the_office_running_its_website():
+    from govweb.export import publisher_of
+
+    def row(org, sub):
+        return {"organization": org, "suborganization": sub}
+
+    assert publisher_of(row("Department of State", "Bureau of Global Public Affairs")) == "Department of State"
+    assert publisher_of(row("Department of Homeland Security", "Management Directorate")) == (
+        "Department of Homeland Security"
+    )
+    assert publisher_of(row("Department of Justice", "Office of the Chief Information Officer")) == "Department of Justice"
+    assert publisher_of(row("Department of Homeland Security", "Citizenship and Immigration Services")) == (
+        "Citizenship and Immigration Services"
+    )
