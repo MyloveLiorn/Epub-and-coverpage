@@ -2,3 +2,4 @@
 # (.github/workflows/track-books.yml), which also runs every Wednesday once it is on the default
 # branch, and from the Actions tab's "Run workflow" button. Last request:
 2026-09-28 first check: the books of the Search and States tabs (10+ pages)
+2026-09-28 re-check after 18-page minimum: both search tabs refreshed, track 18+ page books only
