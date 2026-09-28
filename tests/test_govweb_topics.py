@@ -372,6 +372,27 @@ def test_one_row_per_book_whatever_its_language():
     assert book_score("Asylum Quarterly Stakeholder Engagement", "https://a.gov/x.pdf") < 0
 
 
+def test_state_site_paperwork_and_link_text_noise():
+    from govweb.classify import book_score, clean_title, is_generic_title
+
+    url = "https://x.gov/a.pdf"
+    for paperwork in ("Attorney General Weiser joins amicus briefs opposing the administration",
+                      "SOC 887A (12/20) Cash Assistance Program for Immigrants",
+                      "2402.15.10 Verification of U.S. Citizenship",
+                      "Employment of Illegal Immigrants - Certification by Bidder/Contractor"):  # fmt: skip
+        assert book_score(paperwork, url) < 0, paperwork
+    for book in ("Minnesota Refugee Health Screening Manual", "2017 Iowa Refugee Health Program Report",
+                 "Documenting Immigrants: An Examination of Immigration and Naturalization Service Case Files"):
+        assert book_score(book, url) > 0, book
+    assert clean_title("Opens in a new window Refugee and Immigrant Student Policies") == (
+        "Refugee and Immigrant Student Policies"
+    )
+    assert clean_title("Learn More about New American Integration Report") == "New American Integration Report"
+    assert clean_title("Stop Immigration Scams! (English) (Archive") == "Stop Immigration Scams! (English)"
+    assert clean_title("Carr Backs Rule on Proof of Citizenship | Office") == "Carr Backs Rule on Proof of Citizenship"
+    assert is_generic_title("Icon of an upward economic growth chart")
+
+
 def test_titles_lose_file_sizes():
     from govweb.classify import clean_title
 
@@ -558,6 +579,13 @@ def test_state_search_keeps_a_states_best_books(army_cli, capsys):
         rows = list(csv.DictReader(fh))
     assert {r["state"] for r in rows} == {"CA"}
     assert "Survival Class Flyer" not in {r["title"] for r in rows}  # paperwork
+    conn.execute("UPDATE documents SET pages = 3 WHERE url LIKE '%survival-handbook%'")
+    conn.commit()
+    code, out = run(capsys, "export", "--out", "CA.csv", "--state", "CA", "--topics-only", "--config", "govbooks.toml",
+                    "--min-pages", "10")  # fmt: skip
+    assert "Wrote 1 row(s)" in out  # the 3-page handbook is left out; the uncounted guide stays
+    code, out = run(capsys, "export", "--out", "CA.csv", "--state", "CA", "--topics-only", "--config", "govbooks.toml",
+                    "--sort", "pages", "--top", "2")  # fmt: skip
     code, out = run(capsys, "export", "--out", "TX.csv", "--state", "TX", "--topics-only", "--config", "govbooks.toml")
     assert "Wrote 0 row(s)" in out
     code, out = run(capsys, "merge", "CA.csv", "TX.csv", "--out", "states.md", "--heading", "By state")

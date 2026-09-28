@@ -94,11 +94,24 @@ _FILE_SIZE = re.compile(
 )
 
 
+_NEW_WINDOW = re.compile(r"[(\[]?\s*\bopens? in (?:a )?new (?:window|tab)\b\s*[)\]]?", re.IGNORECASE)
+_LEAD_IN = re.compile(r"^\s*(?:learn more about|click here (?:to|for)|download(?: the)?|read(?: the)?|view(?: the)?)\s+",
+                      re.IGNORECASE)  # fmt: skip
+_OPEN_BRACKET_END = re.compile(r"\s*[(\[][^()\[\]]*$")  # "Stop Immigration Scams! (Archive" (cut short)
+
+
 def clean_title(text: str) -> str:
     """ "K9H2F Handbook 2026 K9H2F Handbook 2026" -> "K9H2F Handbook 2026", "Don&#39;t" -> "Don't",
     and no trailing dot, separator or file size ("[PDF, 1 MB]", or a "[" left of one)."""
     text = " ".join(html.unescape(html.unescape(text)).split())
     text = _FILE_SIZE.sub("", text)
+    text = _NEW_WINDOW.sub(" ", text)
+    text = _LEAD_IN.sub("", text) if len(_LEAD_IN.sub("", text).split()) >= 2 else text
+    text = _OPEN_BRACKET_END.sub("", text)
+    first, bar, _ = text.partition(" | ")  # "Title | Office of the Attorney General"
+    if bar and len(first.split()) >= 3:
+        text = first
+    text = " ".join(text.split())
     words = text.split()
     half = len(words) // 2
     if half and len(words) % 2 == 0 and words[:half] == words[half:]:
@@ -106,8 +119,12 @@ def clean_title(text: str) -> str:
     return text.strip(" -|:._")
 
 
+# Image descriptions used as link text: "Icon of an upward growth chart ...".
+_IMAGE_TEXT = re.compile(r"^\s*(?:icon|image|photo|picture|logo|graphic|illustration|thumbnail)\b", re.IGNORECASE)
+
+
 def is_generic_title(title: str) -> bool:
-    return " ".join(_WORDS.findall(title.lower())) in GENERIC_LINK_TEXT
+    return " ".join(_WORDS.findall(title.lower())) in GENERIC_LINK_TEXT or bool(_IMAGE_TEXT.match(title))
 
 
 def meaningful_file_name(url: str) -> bool:
@@ -155,7 +172,22 @@ PAPERWORK_WORDS = {
     # Privacy impact assessments, grant notices and lists, meeting invitations and speeches.
     "pia": -3, "privacy": -1, "nofo": -3, "foa": -3, "recipient": -2, "roster": -2, "invitation": -2,
     "remarks": -2, "stakeholder": -1, "template": -2, "response": -1, "workload": -1,
+    # Court briefs, bidder certifications, questionnaires and news, found on state sites.
+    "amicus": -3, "lawsuit": -2, "plaintiff": -2, "sues": -2, "bidder": -3, "questionnaire": -2,
+    "certification": -1, "verification": -1, "declaration": -1, "today": -2,
 }  # fmt: skip
+
+# News releases: "Attorney General Weiser joins amicus brief ...", "Governor signs ...".
+_NEWS = re.compile(
+    r"\b(?:attorney general|governor|secretary|commissioner|comptroller|treasurer|mayor|director|ag)\b[^.:]{0,60}?"
+    r"\b(?:joins|files|urges|sues|announces|applauds|defends|backs|secures|praises|signs|opposes|calls|took action|"
+    r"takes action|leads|wins)\b",
+    re.IGNORECASE,
+)
+# Numbered forms ("SOC 814 (12/20) Statement of Facts") and single sections of policy manuals
+# ("2402.15.10 Verification of U.S. Citizenship").
+_FORM_NUMBER = re.compile(r"^\s*[A-Z]{1,6}[- ]?\d{1,5}[A-Z]?\s*\(\d{1,2}/\d{2,4}\)")
+_MANUAL_SECTION = re.compile(r"^\s*\d{3,5}(?:\.\d{1,3}){1,3}\b")
 
 # A court case's name: "Ahmed v. DHS", "Doe vs Smith"; but not "Title V Grants" or "Part V".
 _CAPTION = re.compile(r"\b([a-z][\w.'&-]*)[\s_-]+vs?\.?[\s_-]+[a-z]", re.IGNORECASE)
@@ -185,6 +217,10 @@ def book_score(title: str, url: str) -> int:
         score += 1
     if is_court_case(title) or is_court_case(title_from_url(url)):
         score -= 3
+    if _NEWS.search(title) or _FORM_NUMBER.search(title):
+        score -= 3
+    if _MANUAL_SECTION.search(title):
+        score -= 2
     return max(-5, min(5, score))
 
 
@@ -199,7 +235,8 @@ LANGUAGE_NAMES = [
     "somali", "swahili", "tigrinya", "ukrainian", "polish", "japanese", "german", "italian", "hmong", "khmer",
     "lao", "thai", "turkish", "uzbek", "kinyarwanda", "kirundi", "karen", "chuukese", "marshallese", "samoan",
     "tongan", "ilocano", "greek", "hebrew", "romanian", "albanian", "bosnian", "serbian", "croatian", "oromo",
-    "dinka", "nuer", "pular", "wolof", "fulani", "mam", "kiche", "k'iche'", "quiche",
+    "dinka", "nuer", "pular", "wolof", "fulani", "mam", "kiche", "k'iche'", "quiche", "lingala", "rohingya",
+    "kurdish", "uyghur", "tamil", "gujarati", "georgian", "mongolian", "sango",
 ]  # fmt: skip
 _LANG = "|".join(re.escape(n).replace(r"\ ", r"\s+") for n in sorted(LANGUAGE_NAMES, key=len, reverse=True))
 _QUALIFIER = r"(?:\s+(?:simplified|traditional|version|translation|language|edition))*"

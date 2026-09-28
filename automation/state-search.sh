@@ -13,6 +13,7 @@ CONFIG="${GOVBOOKS_CONFIG:-automation/govbooks.toml}"
 OUT="${OUT_DIR:-results}"
 STATE="${STATE:?set STATE, e.g. TX}"
 TOP="${TOP:-5}"                          # books kept per state
+MIN_PAGES="${MIN_PAGES:-10}"             # shorter documents aren't books (uncounted ones stay)
 SITES_PER_STATE="${SITES_PER_STATE:-30}"
 SUBSITES="${SUBSITES:-20}"               # agency sites found under the portal (dhs.georgia.gov, ...)
 PAGES="${PAGES:-150}"                    # pages per site
@@ -43,8 +44,9 @@ subject="$(sed -n 's/^\[topics\.\(.*\)\]$/\1/p' "$CONFIG" | paste -sd, | sed 's/
 "${web[@]}" amazon --state "$STATE" --topics-only "${topics[@]}" --provider "$AMAZON_PROVIDER" --limit 100
 
 best=(--state "$STATE" --topics-only "${topics[@]}" --sort pages)
-"${web[@]}" export "${best[@]}" --top "$TOP" --out "$OUT/$STATE-top.csv"
-"${web[@]}" export "${best[@]}" --top "$TOP" --out "$OUT/$STATE-sheet.csv" --sheet "$subject: $STATE"
+"${web[@]}" export "${best[@]}" --top "$TOP" --min-pages "$MIN_PAGES" --out "$OUT/$STATE-top.csv"
+"${web[@]}" export "${best[@]}" --top "$TOP" --min-pages "$MIN_PAGES" --out "$OUT/$STATE-sheet.csv" \
+  --sheet "$subject: $STATE"
 "${web[@]}" export "${best[@]}" --out "$OUT/$STATE-all.csv"
 
 found=$(( $(wc -l < "$OUT/$STATE-all.csv") - 1 ))

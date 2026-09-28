@@ -603,6 +603,8 @@ def cmd_export(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
         results = [r for r in results if r["rights"] in copyright_policy.REUSABLE]
     if args.topics_only:
         results = [r for r in results if r["topics"]]
+    if args.min_pages:  # documents whose pages couldn't be counted stay
+        results = [r for r in results if not r["pages"] or int(r["pages"]) >= args.min_pages]
     if args.sort == "pages":
         results.sort(key=book_order)
     if args.top:
@@ -900,6 +902,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--sort", choices=["newest", "pages"], default="newest",
                    help="newest first (default), or the longest first with paperwork last")
     p.add_argument("--top", type=int, help="only the first N rows (after sorting)")
+    p.add_argument("--min-pages", type=int, help="leave out documents shorter than this (uncounted ones stay)")
     _narrow_options(p)
     p.add_argument("--days", type=int, help="only documents first found in the last N days")
     p.add_argument("--new-only", action="store_true", help="only documents that appeared after a site's first crawl")
