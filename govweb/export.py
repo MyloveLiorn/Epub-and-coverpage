@@ -9,9 +9,11 @@ from pathlib import Path
 from govweb.amazon import amazon_link, amazon_status
 from govweb.watch import Matcher, matching_topics, rights_of
 
+# publisher: the authority (agency) that published it; website and found_on: where it was found.
 COLUMNS = [
-    "found", "new", "title", "topics", "type", "publisher", "level", "state", "website", "link", "rights",
-    "on_amazon", "amazon_editions", "amazon_best_rank", "amazon_link", "book_score", "found_on", "rights_note",
+    "found", "new", "title", "topics", "type", "pages", "publisher", "country", "level", "state", "website",
+    "found_on", "link", "rights", "on_amazon", "amazon_editions", "amazon_best_rank", "amazon_link", "book_score",
+    "rights_note",
 ]  # fmt: skip
 
 
@@ -37,7 +39,9 @@ def result_rows(
                 "title": row["title"],
                 "topics": ", ".join(matching_topics(row, topics or {})),
                 "type": row["file_type"],
+                "pages": row["pages"] or "",
                 "publisher": row["suborganization"] or row["organization"],
+                "country": "United States",
                 "level": row["level"],
                 "state": row["state"] or "",
                 "website": row["domain"],

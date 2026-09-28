@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS documents (
     found_on TEXT,
     found_via TEXT,
     book_score INTEGER NOT NULL DEFAULT 0,
+    pages INTEGER,  -- NULL: not counted yet; 0: couldn't be counted
     first_seen TEXT NOT NULL,
     last_seen TEXT NOT NULL
 );
@@ -114,7 +115,7 @@ MIGRATIONS = {
         "source": "TEXT NOT NULL DEFAULT 'registry'",
         "first_crawled_at": "TEXT",
     },
-    "documents": {"book_score": "INTEGER NOT NULL DEFAULT 0"},
+    "documents": {"book_score": "INTEGER NOT NULL DEFAULT 0", "pages": "INTEGER"},
 }
 
 
@@ -439,6 +440,22 @@ def seed_urls(conn: sqlite3.Connection, domain: str, limit: int = 50) -> list[st
 
 
 # --- Amazon checks ------------------------------------------------------------------
+
+
+def documents_to_count(conn: sqlite3.Connection, books_only: bool = True) -> list[sqlite3.Row]:
+    """PDFs whose pages haven't been counted, with their site's owner; newest first."""
+    return conn.execute(
+        f"""
+        SELECT d.*, s.organization, s.suborganization FROM documents d JOIN sites s ON s.domain = d.domain
+        WHERE d.file_type = 'pdf' AND d.pages IS NULL {'AND d.book_score > 0' if books_only else ''}
+        ORDER BY d.first_seen DESC, d.book_score DESC
+        """
+    ).fetchall()
+
+
+def save_pages(conn: sqlite3.Connection, url: str, pages: int) -> None:
+    conn.execute("UPDATE documents SET pages = ? WHERE url = ?", (pages, url))
+    conn.commit()
 
 
 def documents_to_check(conn: sqlite3.Connection, older_than: str, limit: int = -1) -> list[sqlite3.Row]:

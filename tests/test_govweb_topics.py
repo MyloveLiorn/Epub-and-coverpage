@@ -372,3 +372,17 @@ def test_state_portals(army_cli, capsys):
     assert (florida["level"], florida["state"], florida["organization"]) == ("state", "FL", "State of Florida")
     code, out = run(capsys, "portals")
     assert "myflorida.com" in out and "not crawled" in out
+
+
+def test_cli_count_pages_and_the_pages_column(army_cli, capsys):
+    pdf = b"%PDF-1.4\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 164 >>\nendobj\n%%EOF"
+    army_cli.pages["https://army.mil/files/FM-21-76.pdf"] = (200, "application/pdf", pdf)
+    run(capsys, "crawl", "army.mil", "--no-sitemaps")
+    code, out = run(capsys, "count-pages", "--keywords", "survival", "--verbose")
+    assert "Counted 1 of 1." in out
+    run(capsys, "export", "--out", "p.csv", "--keywords", "survival")
+    with open("p.csv", newline="") as fh:
+        row = next(csv.DictReader(fh))
+    assert (row["pages"], row["country"], row["found_on"]) == ("164", "United States", "https://army.mil/training/field-survival")
+    code, out = run(capsys, "count-pages", "--keywords", "survival")
+    assert "No PDFs to count." in out  # counted once

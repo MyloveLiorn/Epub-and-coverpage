@@ -529,6 +529,37 @@ def _narrow(rows: list[sqlite3.Row], args: argparse.Namespace) -> list[sqlite3.R
     return rows
 
 
+def cmd_count_pages(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
+    """Download PDFs whose pages haven't been counted (books on the topics first) and count them."""
+    from govweb.pdfpages import count_pages
+
+    docs = _narrow(db.documents_to_count(conn, books_only=not args.all_documents), args)
+    topics = topic_matchers(args.config)
+    if topics:
+        on_topic = {d["url"] for d in docs if matching_topics(d, topics)}
+        if args.topics_only:
+            docs = [d for d in docs if d["url"] in on_topic]
+        docs.sort(key=lambda d: d["url"] not in on_topic)
+    docs = docs[: args.limit]
+    if not docs:
+        say("No PDFs to count.")
+        return 0
+    say(f"Counting the pages of {len(docs)} PDF(s)...")
+    fetcher = make_fetcher(args)
+    counted = 0
+    for doc in docs:
+        pages = 0
+        if fetcher.allowed(doc["url"]):
+            fetched = fetcher.get(doc["url"], max_bytes=int(args.max_mb * 1_000_000))
+            pages = (count_pages(fetched.body) or 0) if fetched.ok else 0
+        db.save_pages(conn, doc["url"], pages)
+        counted += bool(pages)
+        if args.verbose:
+            say(f"  {pages or '?':>5}  {doc['title'][:80]}")
+    say(f"Counted {counted} of {len(docs)}.")
+    return 0
+
+
 def cmd_export(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     rows = db.export_rows(
         conn, books_only=not args.all_documents, since=_since(args.days) if args.days else None, new_only=args.new_only
@@ -785,6 +816,17 @@ def build_parser() -> argparse.ArgumentParser:
     _narrow_options(p)
     p.add_argument("--verbose", action="store_true", help="print each search")
     p.set_defaults(func=cmd_amazon)
+
+    p = sub.add_parser("count-pages", help="count the pages of PDFs (downloads them; books on the topics first)")
+    p.add_argument("--limit", type=int, default=100, help="at most this many PDFs (default 100)")
+    p.add_argument("--max-mb", type=float, default=80, help="skip the rest of a PDF over this size (default 80 MB)")
+    p.add_argument("--config", type=Path, help="govbooks config whose topics go first")
+    p.add_argument("--topics-only", action="store_true", help="only PDFs matching a topic")
+    p.add_argument("--all-documents", action="store_true", help="include paperwork, not only book-like files")
+    p.add_argument("--delay", type=float, default=1.0, help="seconds between requests to one host (default 1)")
+    p.add_argument("--verbose", action="store_true", help="print each count")
+    _narrow_options(p)
+    p.set_defaults(func=cmd_count_pages)
 
     p = sub.add_parser("export", help="write the results table (books, topics, publisher, rights, Amazon status)")
     p.add_argument("--out", type=Path, required=True, help="a .csv file, or .md for a short readable table")
