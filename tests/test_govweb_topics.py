@@ -178,7 +178,7 @@ def test_a_site_that_redirects_to_another_mapped_site_is_not_crawled_twice(army_
     conn = db.connect("w.db")
     for host in ("presidio.gov", "presidiotrust.gov"):
         db.add_site(conn, host, organization="Presidio Trust", level="federal")
-    code, out = run(capsys, "crawl", "presidiotrust.gov", "--no-sitemaps")
+    code, out = run(capsys, "crawl", "--search", "presidiotrust", "--no-sitemaps")
     assert "presidiotrust.gov: same website as www.presidio.gov, not crawled twice" in out
     assert db.get_site(conn, "presidiotrust.gov")["crawl_status"] == "alias"
     assert db.select_documents(conn) == []
@@ -269,8 +269,10 @@ def test_cli_state_crawl_puts_publisher_sites_first(army_cli, capsys):
         db.add_site(conn, host, organization=host, level="state", state="CA")
         army_cli.pages[f"https://{host}/"] = (200, "text/html", html(host))
     code, out = run(capsys, "crawl", "--level", "state", "--state", "CA", "--limit", "1", "--no-sitemaps")
-    assert code == 0 and "archives.ca.gov" in out and "aaa.ca.gov" not in out
-    run(capsys, "crawl", "--level", "state", "--state", "CA", "--no-sitemaps")  # the rest, ca.gov included
+    assert code == 0 and "ca.gov:" in out  # the state's portal first
+    code, out = run(capsys, "crawl", "--level", "state", "--state", "CA", "--limit", "1", "--no-sitemaps")
+    assert "archives.ca.gov" in out and "aaa.ca.gov" not in out  # then publisher-like names
+    run(capsys, "crawl", "--level", "state", "--state", "CA", "--no-sitemaps")  # the rest
     code, out = run(capsys, "crawl", "--level", "state", "--state", "CA", "--no-sitemaps")
     assert (code, out.strip()) == (0, "Nothing to crawl: every chosen site was crawled recently.")
 
@@ -357,3 +359,16 @@ def test_cli_ntrs_results_join_the_table(army_cli, capsys, monkeypatch, fake_htt
     code, out = run(capsys, "export", "--out", "n.csv", "--sites", "nasa.gov", "--keywords", "Apollo 13", "--all-documents")
     with open("n.csv", newline="") as fh:
         assert sorted(r["title"] for r in csv.DictReader(fh)) == ["Apollo 13 mission report", "Report of Apollo 13 Review Board"]
+
+
+def test_state_portals(army_cli, capsys):
+    from govweb.portals import state_portals
+
+    portals = state_portals()
+    assert len(portals) == 50 and portals["TX"] == "texas.gov" and portals["FL"] == "myflorida.com"
+    code, out = run(capsys, "portals", "FL", "Texas")
+    assert out.split() == ["myflorida.com", "texas.gov"]
+    florida = db.get_site(db.connect("w.db"), "myflorida.com")
+    assert (florida["level"], florida["state"], florida["organization"]) == ("state", "FL", "State of Florida")
+    code, out = run(capsys, "portals")
+    assert "myflorida.com" in out and "not crawled" in out

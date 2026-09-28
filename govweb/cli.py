@@ -24,6 +24,7 @@ from govweb.classify import host_hint_score, topic_phrases
 from govweb.crawl import CrawlLimits, crawl_site
 from govweb.export import dedupe, result_rows, write_csv, write_markdown
 from govweb.fetch import USER_AGENT, Fetcher
+from govweb.portals import ensure_portal, is_portal, state_portals
 from govweb.registry import LEVEL_NAMES, REGISTRY_URL, parse_registry
 from govweb.tree import build_tree, render, to_dict
 from govweb.watch import (
@@ -163,8 +164,9 @@ def _ensure_sites(conn: sqlite3.Connection, hosts: list[str]) -> None:
         say(f"{host} is not {known}; added it (see: govweb add --help to name it).")
 
 
-def run_crawls(conn: sqlite3.Connection, sites: list[sqlite3.Row], args: argparse.Namespace) -> int:
-    """Crawl sites in parallel and store the results. Re-crawls start from known listing pages."""
+def run_crawls(conn: sqlite3.Connection, sites: list[sqlite3.Row], args: argparse.Namespace, aliases: bool = True) -> int:
+    """Crawl sites in parallel and store the results. Re-crawls start from known listing pages.
+    With ``aliases``, a site that only redirects to another mapped site is not crawled twice."""
     limits = CrawlLimits(
         max_pages=args.max_pages, max_depth=args.max_depth, use_sitemaps=not args.no_sitemaps,
         topic_keywords=getattr(args, "crawl_keywords", None) or [],
@@ -180,7 +182,7 @@ def run_crawls(conn: sqlite3.Connection, sites: list[sqlite3.Row], args: argpars
         futures = {
             pool.submit(
                 crawl_site, s["domain"], make_fetcher(args), limits, s["parent_domain"],
-                db.seed_urls(conn, s["domain"]), mapped.__contains__,
+                db.seed_urls(conn, s["domain"]), mapped.__contains__ if aliases else None,
             ): s
             for s in sites
         }  # fmt: skip
@@ -227,7 +229,7 @@ def cmd_crawl(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     if args.crawl_keywords:
         say(f"Following links about: {', '.join(args.crawl_keywords)}")
     if not args.subsites_only:
-        run_crawls(conn, sites, args)
+        run_crawls(conn, sites, args, aliases=not args.domains)  # sites asked for by name are always crawled
     if args.with_subsites or args.subsites_only:
         subsites = _subsites_to_crawl(conn, [s["domain"] for s in sites], recent, args)
         if subsites:
@@ -253,8 +255,8 @@ def _by_promise(sites: list[sqlite3.Row], keywords: list[str]) -> list[sqlite3.R
 
     def key(site: sqlite3.Row) -> tuple:
         if site["crawled_at"]:
-            return (1, 0, site["crawled_at"])
-        return (0, -host_hint_score(site["domain"], phrases), "")
+            return (1, not is_portal(site["domain"]), site["crawled_at"])
+        return (0, not is_portal(site["domain"]), -host_hint_score(site["domain"], phrases), "")
 
     return sorted(sites, key=key)
 
@@ -265,6 +267,21 @@ def _subsites_to_crawl(
     """The sub-sites of the crawled sites that are due (not those just crawled), the most promising first."""
     subsites = [s for s in db.select_subsites(conn, parents, not_crawled_since=recent) if s["domain"] not in parents]
     return _by_promise(subsites, args.crawl_keywords)[: args.max_subsites]
+
+
+def cmd_portals(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
+    """With states: put their portals on the map and print them (one per line). Without: list all."""
+    if args.states:
+        for state in args.states:
+            say(ensure_portal(conn, STATE_ABBR[resolve_state(state)]))
+        return 0
+    rows = []
+    for abbr, host in sorted(state_portals().items()):
+        site = db.get_site(conn, host)
+        rows.append({"state": abbr, "portal": host, "status": (site["crawl_status"] or "not crawled") if site else "not on the map",
+                     "documents": site["documents_found"] if site else ""})  # fmt: skip
+    print_table(rows, [("state", "St", 2), ("portal", "Portal", 24), ("status", "Status", 14), ("documents", "Docs", 6)])
+    return 0
 
 
 def cmd_ntrs(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
@@ -702,6 +719,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--subsite-pages", type=int, help="pages fetched per sub-site (default: --max-pages)")
     p.add_argument("--subsites-only", action="store_true", help="crawl only the sub-sites of the chosen sites")
     p.set_defaults(func=cmd_crawl)
+
+    p = sub.add_parser("portals", help="each state's official website, where its search starts")
+    p.add_argument("states", nargs="*", help="put these states' portals on the map and print them, e.g. TX")
+    p.set_defaults(func=cmd_portals)
 
     p = sub.add_parser("ntrs", help="search NASA's Technical Reports Server (reports with their PDFs)")
     p.add_argument("query", help='words to search for, e.g. "Apollo 13"')

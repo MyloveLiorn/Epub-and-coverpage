@@ -76,8 +76,9 @@ if [ "${#priority[@]}" -gt 0 ]; then
 fi
 
 # 3. State websites in depth: a few states each run, every state in turn (by week of the
-#    year), or the states asked for. In each state, sites never searched come first, and among
-#    them those whose names suggest books (library, archives, history, geology, ...).
+#    year), or the states asked for. In each state, the state's official website comes first,
+#    then sites never searched, those whose names suggest books (library, archives, history,
+#    geology, ...) leading.
 ALL_STATES=(AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO
             MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY)
 states=()
@@ -90,6 +91,8 @@ if [ "${#states[@]}" -eq 0 ]; then
 fi
 echo "States this run: ${states[*]}"
 for st in "${states[@]}"; do
+  # The state's official website (texas.gov, ...) goes first: it links to the state's agencies.
+  step "${web[@]}" portals "$st"
   step "${web[@]}" crawl --level state --state "$st" --limit "$STATE_SITES" "${topics[@]}" \
     --max-pages "$STATE_PAGES" --max-depth 4 --max-minutes "$STATE_SITE_MINUTES" --workers 8
 done
