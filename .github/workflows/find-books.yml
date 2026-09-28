@@ -5,8 +5,10 @@ name: Find government books
 # books, check Amazon, and save the results (CSV tables and the database) to the "data" branch.
 # automation/priority-sites.txt lists the priority sites.
 on:
-  schedule:
-    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  # The Monday schedule is paused until the results have been checked. To turn it back on,
+  # put these two lines back under "on:":
+  #   schedule:
+  #     - cron: "17 6 * * 1" # Mondays 06:17 UTC
   workflow_dispatch:
     inputs:
       extra_sites:
