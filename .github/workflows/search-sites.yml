@@ -1,0 +1,67 @@
+name: Search sites
+
+# On demand: search chosen government websites (and their sub-sites) for a subject, check the
+# books found on Amazon, and show the table on the run's page (also downloadable as books.csv).
+# It starts from the weekly run's database but doesn't change it, so it can run at any time.
+on:
+  workflow_dispatch:
+    inputs:
+      sites:
+        description: Sites to search (space-separated), e.g. nasa.gov history.nasa.gov
+        required: true
+      keywords:
+        description: Words or phrases (comma-separated), e.g. Apollo 13, Apollo XIII
+        required: true
+      pages:
+        description: Pages per site
+        default: "400"
+      subsites:
+        description: Sub-sites searched too
+        default: "20"
+
+permissions:
+  contents: read
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install .
+
+      - name: Start from the weekly run's database
+        run: |
+          mkdir -p data
+          if git ls-remote --exit-code --heads origin data >/dev/null; then
+            git fetch --depth=1 origin data
+            git archive origin/data govweb.db.gz | tar -x -C data || true
+            [ -e data/govweb.db.gz ] && gunzip -f data/govweb.db.gz
+          fi
+          ls -la data
+
+      - name: Search
+        env:
+          SITES: ${{ inputs.sites }}
+          KEYWORDS: ${{ inputs.keywords }}
+          PAGES: ${{ inputs.pages || '400' }}
+          SUBSITES: ${{ inputs.subsites || '20' }}
+          KEEPA_API_KEY: ${{ secrets.KEEPA_API_KEY }}
+          GOOGLE_BOOKS_API_KEY: ${{ secrets.GOOGLE_BOOKS_API_KEY }}
+          AMAZON_CREATORS_CREDENTIAL_ID: ${{ secrets.AMAZON_CREATORS_CREDENTIAL_ID }}
+          AMAZON_CREATORS_CREDENTIAL_SECRET: ${{ secrets.AMAZON_CREATORS_CREDENTIAL_SECRET }}
+          AMAZON_PARTNER_TAG: ${{ secrets.AMAZON_PARTNER_TAG }}
+        run: automation/search.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: search-results
+          path: results/
+          if-no-files-found: ignore

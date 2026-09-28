@@ -9,7 +9,7 @@ The pipeline has four steps:
 3. **Check the Amazon market.** Each book is searched on Amazon and gets a verdict (for example `open_gap`: nobody sells it yet, but books on the topic sell) and a 0–100 score.
 4. **Track.** Watched books and ASINs are snapshotted on every run. You're told when a competing edition appears, when the sales rank moves 20% or more, or when the price changes.
 
-A second tool in this repo, [`govweb`](#govweb-the-government-website-map), maps federal and state government websites, finds the books they host, and watches for new ones. It will be merged into `govbooks` later.
+A second tool in this repo, [`govweb`](#govweb-the-government-website-map), maps federal and state government websites, searches them for books (for example army.mil and its sub-sites), and watches for new ones. It will be merged into `govbooks` later. The [weekly online run](#running-it-online-no-pc-needed) uses `govweb` only; the catalog search in step 2 is still available as a command.
 
 ## Install
 
@@ -62,7 +62,7 @@ Choose a provider with `[amazon] provider = ...` in the config or `--provider`:
 
 | Provider | Needs | Sales rank | Notes |
 |---|---|---|---|
-| `catalog` (default) | nothing | no | Counts existing ISBN editions in Google Books and Open Library. A print book's ISBN-10 is its Amazon ASIN, so every edition links to its Amazon page. |
+| `catalog` (default) | nothing | no | Counts existing ISBN editions in Open Library (and Google Books when `GOOGLE_BOOKS_API_KEY` is set). A print book's ISBN-10 is its Amazon ASIN, so every edition links to its Amazon page. |
 | `keepa` | `KEEPA_API_KEY` (paid) | yes | [Keepa](https://keepa.com/#!api) data: sales rank and price, the best fit for tracking. |
 | `creators` | `AMAZON_CREATORS_CREDENTIAL_ID`, `AMAZON_CREATORS_CREDENTIAL_SECRET`, `AMAZON_PARTNER_TAG` | yes | Amazon's [Creators API](https://affiliate-program.amazon.com/creatorsapi/docs/en-us/introduction), which replaced PA-API 5.0 in 2026. Requires an Amazon Associates account and version 3.x credentials (2.x credentials stopped working on 11 September 2026). |
 
@@ -86,7 +86,7 @@ The **score** combines demand (up to 60 points, from the best sales rank, or the
 | Variable | Needed for |
 |---|---|
 | `GOVINFO_API_KEY` | GovInfo. It's free at [api.data.gov](https://api.data.gov/signup/), and `DEMO_KEY` is used if unset. |
-| `GOOGLE_BOOKS_API_KEY` | Optional, but Google Books rate-limits quickly without it. |
+| `GOOGLE_BOOKS_API_KEY` | Optional. Book search in Google Books rate-limits quickly without it, and the `catalog` Amazon check uses Google Books only when it is set. |
 
 ## Copyright screening
 
@@ -129,8 +129,8 @@ See the whole table with `govweb copyright`, or one state with `govweb copyright
 2. **Agency websites.** `govweb agencies sync` adds every federal agency (Federal Register) and state agency (Wikidata) with an official website. That fills two gaps in the registry:
    - Agencies on subdomains, such as `fs.usda.gov` (Forest Service) or `water.ca.gov` (California Department of Water Resources).
    - Agencies outside `.gov`, such as `army.mil` or `dot.state.tx.us`.
-3. **The crawl.** For each site, `govweb crawl` reads `robots.txt` and the sitemaps, then follows links from the home page. It crawls pages that look like publication listings first ("publications", "library", "reports", "handbooks" and so on). It records every linked PDF, EPUB, MOBI and Word document, using its link text as the title, and scores how book-like each one is (handbooks and guides score up, agendas and forms score down).
-4. **Sub-sites.** A crawl stays on one host. Other subdomains it finds are added to the map as sub-sites that inherit their parent's owner, and each can be crawled on its own.
+3. **The crawl.** For each site, `govweb crawl` reads `robots.txt` and the sitemaps, then follows links from the home page. It crawls pages that look like publication listings first ("publications", "library", "reports", "handbooks" and so on). With `--topic`, `--all-topics` or `--keywords`, links and sitemap pages that mention a topic ("survival", "honey bees") come before everything else. It records every linked PDF, EPUB, MOBI and Word document, using its link text as the title, and scores how book-like each one is (handbooks and guides score up, agendas and forms score down).
+4. **Sub-sites.** A crawl stays on one host. Other subdomains it finds are added to the map as sub-sites that inherit their parent's owner; army.mil alone has about 200. `--with-subsites` crawls them right after their parent, a batch per run (`--max-subsites`, default 30). Sub-sites whose names suggest a publisher (armypubs, history, armyupress, library) or a topic go first.
 5. **Any website.** `govweb crawl https://any.site/` works on any site, not only government ones. Name it with `govweb add`.
 6. **New books.** Re-crawls start from the pages where documents were found before. Documents that appear on a later crawl count as new; everything found on a site's first crawl is the baseline. A **watch** is a saved search (a topic or keywords, plus a level, state or site). `govweb watch run` re-crawls the sites due and reports only the new matching books.
 7. **Copyright.** Every document is screened by who published it: the federal rule and its exceptions, or its state's policy (see [Copyright screening](#copyright-screening)).
@@ -143,8 +143,16 @@ govweb map --level federal --out federal.json  # the tree as JSON
 govweb crawl --level federal --limit 50        # the first 50 federal sites
 govweb crawl --state CA --level state          # California state sites
 govweb crawl https://www.army.mil              # any site
+govweb crawl army.mil --with-subsites --all-topics --max-pages 400   # army.mil in depth, topics first
+govweb crawl army.mil --subsites-only --max-subsites 40               # only the next 40 sub-sites
+govweb crawl --level state --state CA --limit 40 --max-minutes 6      # California's sites, 6 minutes each at most
 govweb docs --topic beekeeping --books-only --reusable
 govweb new --days 7 --books-only               # what appeared on re-crawls this week
+govweb amazon                                  # is each book already on Amazon?
+govweb export --out books.csv                  # the results table (also: --new-only --days 7)
+govweb export --out bees.csv --topics-only --config govbooks.toml   # only books on a topic
+govweb ntrs "Apollo 13"                        # NASA's Technical Reports Server (open API, with PDFs)
+govweb export --out a13.csv --sites nasa.gov --keywords "Apollo 13" --all-documents
 
 govweb watch add bees --topic beekeeping --level federal
 govweb watch add ca-guides --keywords "field guide, handbook" --state CA
@@ -163,6 +171,55 @@ At the defaults, a site takes 2 to 3 minutes. All 1,317 federal domains take abo
 
 The map holds no personal data: the registry's security-contact email column is dropped on import.
 
+## Running it online (no PC needed)
+
+The workflow `.github/workflows/find-books.yml` runs `automation/run.sh` every Monday on GitHub's servers, and can also be started by hand. It searches government websites only; it doesn't search book catalogs such as the Internet Archive or Google Books. Each run:
+
+1. Refreshes the map: the .gov registry and, in the first week of each month, the federal and state agency websites.
+2. Searches the **priority sites** in `automation/priority-sites.txt` in depth (army.mil to start with): up to 400 pages each, then the next 40 of their sub-sites (armypubs.army.mil, history.army.mil, armyupress.army.mil, ...), 120 pages each. The priority sites are searched every week, so new books on them are caught quickly.
+3. Searches **state websites** in depth: five states per run, in turn, so all 50 are covered every 10 weeks. For each state it searches up to 40 of its sites, 150 pages each. Sites never searched come first, and among them those whose names suggest books (library, archives, history, geology, publications).
+4. Crawls the next 150 federal sites not crawled in the last 30 days, so the whole federal map is covered over a few weeks.
+5. Every crawl follows links about the topics in `automation/govbooks.toml` first. Each site has a time limit, and pages of one shape (such as `Details.aspx?ID=1`, `?ID=2`, …) are dropped after five of them link to no documents.
+6. Checks whether each book is already on Amazon, books on the topics first. Without keys it uses the free check (Open Library editions; each ISBN-10 is also the Amazon product number). It uses Keepa automatically once `KEEPA_API_KEY` is set.
+7. Saves the results to the `data` branch:
+   - `topic-books.csv`: books on your topics
+   - `new-books.csv`: books that appeared on government websites this week
+   - `website-books.csv`: every book found on the websites
+   - `last-run.md`: the books found by this run, also shown on the run's page in **Actions**
+   - `govweb.db.gz`: the database the next run continues from
+8. Fills the Google Sheet, if one is set up.
+
+Each results row gives the title, the matching topics, the publisher, level and state, the link, the copyright screening, and whether it's on Amazon (`yes`, `no`, `not found`, `not checked`, or `title too generic to check` for titles such as "2021 Annual Report") with a link. A title of fewer than four distinctive words only counts as found when the Amazon listing also names the publisher, since same-title books by others are common. The same book linked twice from one website is listed once.
+
+**Start a run by hand:** open the repo on GitHub, then **Actions** → **Find government books** → **Run workflow**. For that run only, you can add more sites to search in depth (for example `navy.mil nps.gov`), choose the states to search (for example `CA TX`), and set how many sites to crawl.
+
+**Search any site for a subject, on demand:** **Actions** → **Search sites** → **Run workflow**. Enter the sites (for example `nasa.gov history.nasa.gov`) and the words to look for (for example `Apollo 13, Apollo XIII`). It searches those sites and 20 of their sub-sites, following links about the words first, plus NASA's Technical Reports Server when a NASA site is chosen. It checks the books it finds on Amazon, and shows the table on the run's page (also downloadable as `books.csv`). It starts from the weekly run's database but doesn't change it, so it can run at any time. On a PC: `SITES="nasa.gov" KEYWORDS="Apollo 13" automation/search.sh`.
+
+**Change the topics:** edit `automation/govbooks.toml`. **Change the priority sites:** edit `automation/priority-sites.txt` (one site per line). Both can be edited in the GitHub website or app.
+
+**Keys** go under **Settings** → **Secrets and variables** → **Actions**. All are optional:
+
+| Secret | What it adds |
+|---|---|
+| `KEEPA_API_KEY` | Real Amazon results with sales rank (paid) |
+| `AMAZON_CREATORS_CREDENTIAL_ID`, `AMAZON_CREATORS_CREDENTIAL_SECRET`, `AMAZON_PARTNER_TAG` | Amazon Creators API instead of Keepa |
+| `GOOGLE_BOOKS_API_KEY` | The free Amazon check also looks in Google Books |
+| `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SHEET_ID` | Writes the results into a Google Sheet |
+
+**Google Sheet setup (once):**
+1. In [Google Cloud Console](https://console.cloud.google.com/), create a project and enable the **Google Sheets API**.
+2. Create a **service account** and download a JSON key for it.
+3. Create a Google Sheet and share it with the service account's email address as an **Editor**.
+4. Add two secrets:
+   - `GOOGLE_SERVICE_ACCOUNT_JSON`: the whole contents of the JSON key file.
+   - `GOOGLE_SHEET_ID`: the long id in the sheet's web address, between `/d/` and `/edit`.
+
+Each run then replaces three tabs: **Topic books**, **New books** and **Website books**. Cells are written as plain text, so nothing from a website can run as a formula.
+
+This repository is public, so the `data` branch is public too. It holds only public information about government books; keys stay private in the secrets.
+
+The same steps work on a PC: `automation/run.sh` from the repository root, after `pip install -e ".[sheets]"`.
+
 ## Development
 
 ```bash
@@ -177,7 +234,11 @@ The tests use recorded response shapes for every API, so they run offline.
 ```
 govweb/            the government website map: registry.py (.gov list), agencies.py (agency websites),
                    fetch.py (polite fetching), parse.py (HTML and sitemaps), classify.py (documents,
-                   book-likeness), crawl.py, watch.py (new-book watches), tree.py, db.py, cli.py
+                   book-likeness), crawl.py, watch.py (new-book watches), amazon.py, export.py
+                   (results table), sheets.py (Google Sheets), tree.py, db.py, cli.py
+automation/        run.sh (the weekly job), govbooks.toml (its topics), priority-sites.txt (sites searched
+                   in depth every week)
+.github/workflows/ find-books.yml (runs the weekly job on GitHub)
 govbooks/
   copyright_policy.py  federal rule and exceptions, state policies (data/state_copyright.json)
   agencies/        federal_register.py, wikidata.py, index.py (name → office matching), tree helpers

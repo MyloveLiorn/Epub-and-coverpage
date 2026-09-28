@@ -1,0 +1,14 @@
+# Websites searched in depth every week, together with their sub-sites
+# (army.mil -> armypubs.army.mil, history.army.mil, armyupress.army.mil, ...).
+# One site per line. Lines starting with # are ignored: remove the # to add a site.
+# Each site adds roughly 10-20 minutes to the weekly run.
+
+army.mil
+
+# navy.mil
+# af.mil
+# marines.mil
+# nps.gov
+# usda.gov
+# fs.usda.gov
+# cdc.gov

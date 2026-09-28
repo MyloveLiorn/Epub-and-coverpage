@@ -17,8 +17,10 @@ from govbooks.text import contains_phrase, normalize_text, work_key
 
 # A keyword found in the title counts most, then subjects, then the description.
 TITLE_WEIGHT, SUBJECT_WEIGHT, DESCRIPTION_WEIGHT = 3, 2, 1
-# After this many network failures in a row, a source is skipped for the rest of the run.
+# After this many failures in a row that won't clear up soon (network down, quota used up,
+# access refused), a source is skipped for the rest of the run.
 MAX_NETWORK_FAILURES = 3
+BLOCKING_STATUSES = {None, 401, 403, 429}
 
 
 def score_topic(topic: Topic, record: Record) -> int:
@@ -161,10 +163,10 @@ def discover(
                     stats.errors.append(f"{label}: {exc}")
                     if progress:
                         progress(f"  {label}: failed ({exc})")
-                    if isinstance(exc, HttpError) and exc.status is None:
+                    if isinstance(exc, HttpError) and exc.status in BLOCKING_STATUSES:
                         network_failures[source.name] = network_failures.get(source.name, 0) + 1
                         if network_failures[source.name] == MAX_NETWORK_FAILURES and progress:
-                            progress(f"  {source.name}: unreachable, skipping its remaining queries")
+                            progress(f"  {source.name}: unreachable or over its limit, skipping its remaining queries")
                     continue
                 finally:
                     conn.commit()

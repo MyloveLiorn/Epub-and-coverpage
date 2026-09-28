@@ -10,9 +10,10 @@ from govbooks.agencies.federal_register import parse_agencies
 from govbooks.agencies.wikidata import parse_state_agencies
 from govbooks.copyright_policy import StatePolicy, assess
 from govweb import cli, db
-from govweb.agencies import import_agencies, site_host
+from govweb.agencies import import_agencies, is_government_host, site_host
 from govweb.classify import book_score
 from govweb.crawl import CrawlLimits, crawl_site
+from govweb.fetch import FetchResult
 from govweb.registry import parse_registry
 from tests.conftest import FEDERAL_REGISTER, WIKIDATA_CALIFORNIA, FakeHttp
 from tests.test_govweb import REGISTRY_CSV, ROBOTS, SITE, FakeFetcher, html
@@ -80,6 +81,7 @@ def test_book_score():
     assert book_score("Board meeting agenda and minutes", "https://x.gov/a.pdf") < 0
     assert book_score("Building permit application form", "https://x.gov/a.pdf") < 0
     assert book_score("Untitled", "https://x.gov/doc1.pdf") == 0
+    assert book_score("Beekeeping in the United States", "https://x.gov/b.pdf") > 0  # a plain book title
 
 
 def test_old_databases_are_upgraded(tmp_path):
@@ -138,6 +140,58 @@ def test_import_agencies_fills_the_map(conn):
     assert (water["state"], water["suborganization"]) == ("CA", "California Department of Water Resources")
     listed = {r["id"]: r for r in db.select_agencies(conn, state="CA")}
     assert listed["wd:Q5020016"]["host"] == "water.ca.gov"
+
+
+def test_only_government_websites_are_trusted(conn):
+    assert all(map(is_government_host, ["usda.gov", "army.mil", "fs.fed.us", "dot.state.tx.us"]))
+    assert not any(map(is_government_host, ["act.org", "iaia.edu", "ojp.usdoj", "example.com", "ohio.us"]))
+
+    db.add_site(conn, "act.org", "ACTION", level="federal", source="agency")  # left by an older run
+    agencies = parse_agencies([
+        {"id": 7, "name": "ACTION", "short_name": None, "parent_id": None, "agency_url": "http://www.act.org"},
+        {"id": 8, "name": "Justice Programs Office", "short_name": "OJP", "parent_id": None,
+         "agency_url": "http://www.ojp.usdoj"},
+    ])  # fmt: skip
+    stats = import_agencies(conn, agencies)
+    assert (stats.not_government, stats.removed_sites, stats.new_sites) == (2, 1, 0)
+    assert db.get_site(conn, "act.org") is None
+
+
+def test_registry_sync_removes_non_government_directory_sites(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "registry.csv").write_text(REGISTRY_CSV)
+    cli.main(["--db", "w.db", "sync", "--file", "registry.csv"])
+    conn = db.connect("w.db")
+    db.add_site(conn, "act.org", "ACTION", level="federal", source="agency")
+    db.add_subsites(conn, db.get_site(conn, "act.org"), ["my.act.org"])
+    db.add_site(conn, "club.example.org", "My club")  # added by hand: kept
+    conn.close()
+    cli.main(["--db", "w.db", "sync", "--file", "registry.csv"])
+    assert "Removed 1 agency-directory site(s)" in capsys.readouterr().out
+    conn = db.connect("w.db")
+    assert [db.get_site(conn, d) is None for d in ("act.org", "my.act.org", "club.example.org")] == [True, True, False]
+
+
+def test_crawl_rotation_order(conn):
+    conn.execute("UPDATE sites SET crawled_at = '2026-01-01' WHERE domain = 'usda.gov'")
+    conn.execute("UPDATE sites SET crawled_at = '2025-01-01' WHERE domain = 'recreation.gov'")
+    db.add_site(conn, "army.mil", "Army", level="federal", source="agency")
+    order = [s["domain"] for s in db.select_sites(conn, level="federal", rotation=True)]
+    assert order == ["army.mil", "recreation.gov", "usda.gov"]  # never crawled, then oldest first
+
+
+def test_unreachable_site_reports_the_most_telling_error():
+    class Fetcher(FakeFetcher):
+        def get(self, url, html_only=False, max_bytes=None):
+            self.requested.append(url)
+            if url.startswith("https://www."):
+                return FetchResult(url, 403, "text/html")
+            return FetchResult(url, None, error="Connection to x.mil timed out. (connect timeout=10)")
+
+    fetcher = Fetcher({})
+    result = crawl_site("x.mil", fetcher)
+    assert (result.status, result.error) == ("unreachable", "HTTP 403")
+    assert "http://x.mil/" not in fetcher.requested  # the host already timed out on https
 
 
 def test_cli_agencies_sync(tmp_path, monkeypatch, capsys):

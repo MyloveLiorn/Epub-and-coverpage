@@ -16,24 +16,46 @@ def keyword_list(value: str | None) -> list[str]:
     return [k.strip() for k in (value or "").split(",") if k.strip()]
 
 
-def make_matcher(
-    topic: str | None, keywords: list[str], config_path: Path | None = None
-) -> Callable[[sqlite3.Row], int]:
+Matcher = Callable[[sqlite3.Row], int]
+
+
+def _topic_matcher(spec) -> Matcher:
+    from govbooks.discover import score_topic
+    from govbooks.models import Record
+
+    def by_topic(doc: sqlite3.Row) -> int:
+        record = Record("web", doc["url"], doc["title"], description=title_from_url(doc["url"]))
+        score = score_topic(spec, record)
+        return score if score >= spec.min_score else 0
+
+    return by_topic
+
+
+def topic_matchers(config_path: Path | None = None, names: list[str] | None = None) -> dict[str, Matcher]:
+    """A scorer per topic in govbooks.toml (or just the named ones)."""
+    from govbooks.config import load_config
+
+    config = load_config(config_path)
+    return {name: _topic_matcher(config.topic(name)) for name in (names or list(config.topics))}
+
+
+def topic_keywords(config_path: Path | None = None, names: list[str] | None = None) -> list[str]:
+    """The keywords of the named topics (every topic when names is empty)."""
+    from govbooks.config import load_config
+
+    config = load_config(config_path)
+    return [k for name in (names or list(config.topics)) for k in config.topic(name).keywords]
+
+
+def matching_topics(doc: sqlite3.Row, matchers: dict[str, Matcher]) -> list[str]:
+    return [name for name, matcher in matchers.items() if matcher(doc)]
+
+
+def make_matcher(topic: str | None, keywords: list[str], config_path: Path | None = None) -> Matcher:
     """A scorer for documents: 0 means no match. Topics come from govbooks.toml; plain
     keywords count one point per keyword in the title or file name."""
     if topic:
-        from govbooks.config import load_config
-        from govbooks.discover import score_topic
-        from govbooks.models import Record
-
-        spec = load_config(config_path).topic(topic)
-
-        def by_topic(doc: sqlite3.Row) -> int:
-            record = Record("web", doc["url"], doc["title"], description=title_from_url(doc["url"]))
-            score = score_topic(spec, record)
-            return score if score >= spec.min_score else 0
-
-        return by_topic
+        return topic_matchers(config_path, [topic])[topic]
     if keywords:
         phrases = [normalize_text(k) for k in keywords]
 

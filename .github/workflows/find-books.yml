@@ -1,0 +1,94 @@
+name: Find government books
+
+# Weekly: map federal and state government websites, search the priority sites (army.mil, ...),
+# the websites of five states (every state in turn) and the next batch of federal sites for
+# books, check Amazon, and save the results (CSV tables and the database) to the "data" branch.
+# automation/priority-sites.txt lists the priority sites.
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  workflow_dispatch:
+    inputs:
+      extra_sites:
+        description: More sites to search in depth this run (space-separated, e.g. navy.mil nps.gov)
+        default: ""
+      states:
+        description: States whose websites to search this run (e.g. CA TX); empty = the next five in turn
+        default: ""
+      state_sites:
+        description: Websites searched per state
+        default: "40"
+      federal_sites:
+        description: Other federal sites to crawl this run
+        default: "150"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: find-books
+  cancel-in-progress: false
+
+jobs:
+  find-books:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install ".[sheets]"
+
+      - name: Restore previous results from the data branch
+        run: |
+          mkdir -p data
+          if git ls-remote --exit-code --heads origin data >/dev/null; then
+            git fetch --depth=1 origin data
+            git archive origin/data | tar -x -C data
+            for f in data/*.db.gz; do [ -e "$f" ] && gunzip -f "$f"; done
+          fi
+          ls -la data
+
+      - name: Run
+        env:
+          EXTRA_SITES: ${{ inputs.extra_sites }}
+          STATES: ${{ inputs.states }}
+          STATE_SITES: ${{ inputs.state_sites || '40' }}
+          FEDERAL_SITES: ${{ inputs.federal_sites || '150' }}
+          GOOGLE_BOOKS_API_KEY: ${{ secrets.GOOGLE_BOOKS_API_KEY }}
+          KEEPA_API_KEY: ${{ secrets.KEEPA_API_KEY }}
+          AMAZON_CREATORS_CREDENTIAL_ID: ${{ secrets.AMAZON_CREATORS_CREDENTIAL_ID }}
+          AMAZON_CREATORS_CREDENTIAL_SECRET: ${{ secrets.AMAZON_CREATORS_CREDENTIAL_SECRET }}
+          AMAZON_PARTNER_TAG: ${{ secrets.AMAZON_PARTNER_TAG }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+        run: automation/run.sh
+
+      - name: Save results to the data branch
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd data
+          gzip -9 -f ./*.db 2>/dev/null || true
+          cat > README.md <<EOF
+          # Results of the weekly run
+
+          Updated $(date -u '+%Y-%m-%d %H:%M UTC') by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+
+          - topic-books.csv: books on the topics in automation/govbooks.toml
+          - new-books.csv: books that appeared on government websites in the last week
+          - website-books.csv: every book-like document found on the websites
+          - last-run.md: the books found by the latest run
+          - govweb.db.gz: the database the next run continues from
+          EOF
+          git init -q -b data
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Results $(date -u +%F)"
+          # One commit, replaced each week, so the repository doesn't grow with every run.
+          git push -q -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" data

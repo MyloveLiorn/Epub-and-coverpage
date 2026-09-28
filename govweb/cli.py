@@ -18,12 +18,23 @@ from govbooks import copyright_policy
 from govbooks.http import Http, HttpError
 from govbooks.states import STATE_ABBR, resolve_state
 from govweb import db
-from govweb.agencies import fetch_directory, import_agencies
+from govweb.agencies import fetch_directory, guess_owner, import_agencies, remove_non_government_sites
+from govweb.amazon import check_documents
+from govweb.classify import host_hint_score, topic_phrases
 from govweb.crawl import CrawlLimits, crawl_site
+from govweb.export import dedupe, result_rows, write_csv, write_markdown
 from govweb.fetch import USER_AGENT, Fetcher
 from govweb.registry import LEVEL_NAMES, REGISTRY_URL, parse_registry
 from govweb.tree import build_tree, render, to_dict
-from govweb.watch import keyword_list, make_matcher, markdown_report, rank
+from govweb.watch import (
+    keyword_list,
+    make_matcher,
+    markdown_report,
+    matching_topics,
+    rank,
+    topic_keywords,
+    topic_matchers,
+)
 
 
 def say(message: str = "") -> None:
@@ -78,6 +89,9 @@ def cmd_sync(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     sites = parse_registry(text)
     total, new = db.sync_sites(conn, sites)
     say(f"{total} domains in the registry ({new} new).")
+    removed = remove_non_government_sites(conn)
+    if removed:
+        say(f"Removed {removed} agency-directory site(s) that are not on a government domain.")
     return cmd_stats(args, conn)
 
 
@@ -142,23 +156,34 @@ def _ensure_sites(conn: sqlite3.Connection, hosts: list[str]) -> None:
         parent = db.registered_domain_of(conn, host)
         if parent:
             db.add_subsites(conn, parent, [host])
-        else:
-            db.add_site(conn, host, organization=host)
-            say(f"{host} is not a known government site; added it (see: govweb add --help to name it).")
+            continue
+        level, state = guess_owner(host)
+        db.add_site(conn, host, organization=host, level=level, state=state)
+        known = "a known government site" if level == "other" else f"on the map yet ({level} by its domain)"
+        say(f"{host} is not {known}; added it (see: govweb add --help to name it).")
 
 
 def run_crawls(conn: sqlite3.Connection, sites: list[sqlite3.Row], args: argparse.Namespace) -> int:
     """Crawl sites in parallel and store the results. Re-crawls start from known listing pages."""
-    limits = CrawlLimits(max_pages=args.max_pages, max_depth=args.max_depth, use_sitemaps=not args.no_sitemaps)
+    limits = CrawlLimits(
+        max_pages=args.max_pages, max_depth=args.max_depth, use_sitemaps=not args.no_sitemaps,
+        topic_keywords=getattr(args, "crawl_keywords", None) or [],
+        max_seconds=args.max_minutes * 60 if args.max_minutes else None,
+    )  # fmt: skip
     say(f"Crawling {len(sites)} site(s), up to {limits.max_pages} pages each, {args.workers} at a time...")
+    # A site that redirects to one of these is an alias; one that redirects to a site that
+    # couldn't be reached directly is still crawled, through the alias.
+    mapped = {r[0] for r in conn.execute("SELECT domain FROM sites WHERE crawl_status IS NULL OR crawl_status IN "
+                                         "('ok', 'alias')")}  # fmt: skip
     new_documents = 0
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {
             pool.submit(
-                crawl_site, s["domain"], make_fetcher(args), limits, s["parent_domain"], db.seed_urls(conn, s["domain"])
+                crawl_site, s["domain"], make_fetcher(args), limits, s["parent_domain"],
+                db.seed_urls(conn, s["domain"]), mapped.__contains__,
             ): s
             for s in sites
-        }
+        }  # fmt: skip
         for done, future in enumerate(as_completed(futures), 1):
             site = futures[future]
             try:
@@ -176,7 +201,10 @@ def run_crawls(conn: sqlite3.Connection, sites: list[sqlite3.Row], args: argpars
                 f"{len(result.pages)} pages ({publication_pages} publication pages), {len(result.documents)} documents"
                 + (f" ({fresh} new)" if site["crawled_at"] and fresh else "")
                 + (f", {new_subsites} new sub-sites" if new_subsites else "")
+                + (f"; {result.error}" if result.error else "")
                 if result.status == "ok"
+                else f"same website as {urlsplit(result.home_url).netloc}, not crawled twice"
+                if result.status == "alias"
                 else f"{result.status} {result.error or ''}".strip()
             )
             say(f"[{done}/{len(sites)}] {site['domain']}: {detail}")
@@ -188,13 +216,71 @@ def cmd_crawl(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     if not (args.domains or args.level or args.state or args.search or args.all):
         say("Choose what to crawl: domains, --level, --state, --search, or --all for every domain.")
         return 1
-    since = _since(args.skip_recent_days) if not args.domains and args.skip_recent_days else None
+    recent = _since(args.skip_recent_days) if args.skip_recent_days else None
     _ensure_sites(conn, args.domains)
-    sites = _selected(args, conn, not_crawled_since=since, limit=args.limit)
-    if not sites:
-        say("Nothing to crawl.")
-        return 1
-    run_crawls(conn, sites, args)
+    args.crawl_keywords = _crawl_keywords(args)
+    sites = _by_promise(_selected(args, conn, not_crawled_since=None if args.domains else recent, rotation=True),
+                        args.crawl_keywords)[: args.limit]  # fmt: skip
+    if not sites:  # not an error: everything chosen was crawled recently (--skip-recent-days)
+        say("Nothing to crawl: every chosen site was crawled recently.")
+        return 0
+    if args.crawl_keywords:
+        say(f"Following links about: {', '.join(args.crawl_keywords)}")
+    if not args.subsites_only:
+        run_crawls(conn, sites, args)
+    if args.with_subsites or args.subsites_only:
+        subsites = _subsites_to_crawl(conn, [s["domain"] for s in sites], recent, args)
+        if subsites:
+            say(f"\nSub-sites: {', '.join(s['domain'] for s in subsites)}")
+            sub_args = argparse.Namespace(**{**vars(args), "max_pages": args.subsite_pages or args.max_pages})
+            run_crawls(conn, subsites, sub_args)
+        else:
+            say("No sub-sites due for a crawl.")
+    return 0
+
+
+def _crawl_keywords(args: argparse.Namespace) -> list[str]:
+    """Keywords whose links a crawl follows first: --topic / --all-topics from govbooks.toml, and --keywords."""
+    names = args.topic or []
+    keywords = topic_keywords(args.config, names) if names or args.all_topics else []
+    return list(dict.fromkeys(keywords + keyword_list(args.keywords)))
+
+
+def _by_promise(sites: list[sqlite3.Row], keywords: list[str]) -> list[sqlite3.Row]:
+    """Never-crawled sites first, those whose names suggest publishers (armypubs.army.mil,
+    alabamaarchives.gov) or the searched topics leading; then the sites crawled longest ago."""
+    phrases = topic_phrases(keywords)
+
+    def key(site: sqlite3.Row) -> tuple:
+        if site["crawled_at"]:
+            return (1, 0, site["crawled_at"])
+        return (0, -host_hint_score(site["domain"], phrases), "")
+
+    return sorted(sites, key=key)
+
+
+def _subsites_to_crawl(
+    conn: sqlite3.Connection, parents: list[str], recent: str | None, args: argparse.Namespace
+) -> list[sqlite3.Row]:
+    """The sub-sites of the crawled sites that are due (not those just crawled), the most promising first."""
+    subsites = [s for s in db.select_subsites(conn, parents, not_crawled_since=recent) if s["domain"] not in parents]
+    return _by_promise(subsites, args.crawl_keywords)[: args.max_subsites]
+
+
+def cmd_ntrs(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
+    from govweb import ntrs
+
+    _ensure_sites(conn, ["ntrs.nasa.gov"])
+    try:
+        citations = ntrs.search(make_json_http(), args.query, limit=args.limit)
+    except HttpError as exc:
+        say(f"Error: {exc}")
+        return 2
+    result = ntrs.to_result(citations)
+    known = {r[0] for r in conn.execute("SELECT url FROM documents WHERE domain = 'ntrs.nasa.gov'")}
+    db.store_result(conn, result)
+    say(f"NASA Technical Reports Server: {len(citations)} report(s) for {args.query!r}, {len(result.documents)} "
+        f"with a public file ({len(set(result.documents) - known)} not seen before).")  # fmt: skip
     return 0
 
 
@@ -278,7 +364,9 @@ def cmd_agencies_sync(args: argparse.Namespace, conn: sqlite3.Connection) -> int
     stats = import_agencies(conn, agencies)
     say(
         f"{stats.agencies} agencies, {stats.with_website} with a website: {stats.new_sites} new sites outside the "
-        f".gov registry, {stats.new_subsites} new sub-sites, {stats.named_subsites} sub-sites named."
+        f".gov registry, {stats.new_subsites} new sub-sites, {stats.named_subsites + stats.named_sites} sites named, "
+        f"{stats.not_government} skipped as not on a government domain"
+        + (f", {stats.removed_sites} earlier non-government sites removed." if stats.removed_sites else ".")
     )
     return 0
 
@@ -348,6 +436,10 @@ def cmd_watch_run(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
                 due.setdefault(site["domain"], site)
         sites = list(due.values())[: args.max_sites]
         if sites:
+            args.crawl_keywords = list(dict.fromkeys(
+                k for w in watches
+                for k in (topic_keywords(args.config, [w["topic"]]) if w["topic"] else keyword_list(w["keywords"]))
+            ))  # fmt: skip
             run_crawls(conn, sites, args)
         else:
             say("No sites due for a re-crawl (crawl sites first with govweb crawl, or lower --recrawl-days).")
@@ -379,6 +471,88 @@ def cmd_watch_run(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
         else:
             args.out.write_text(markdown_report(sections, stamp))
         say(f"\nWrote the report to {args.out}")
+    return 0
+
+
+# --- Amazon, results export, Google Sheets ---------------------------------------------
+
+
+def cmd_amazon(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
+    from govbooks.config import load_config
+    from govbooks.market import build_provider
+
+    config = load_config(args.config)
+    provider = build_provider(args.provider or config.amazon_provider, make_json_http(), config)
+    docs = _narrow(db.documents_to_check(conn, older_than=_since(args.recheck_days)), args)
+    topics = topic_matchers(args.config)
+    if topics:  # books on the searched topics first, then the rest, newest first
+        on_topic = {d["url"] for d in docs if matching_topics(d, topics)}
+        if args.topics_only:
+            docs = [d for d in docs if d["url"] in on_topic]
+        docs.sort(key=lambda d: d["url"] not in on_topic)
+    docs = docs[: args.limit]
+    if not docs:
+        say("Nothing to check: every book-like document was checked recently.")
+        return 0
+    say(f"Checking {len(docs)} book-like document(s) on Amazon with {provider.name}...")
+    checked, found = check_documents(conn, provider, docs, progress=say if args.verbose else None)
+    say(f"Checked {checked}: {found} already on Amazon, {checked - found} not found.")
+    return 0
+
+
+def _narrow(rows: list[sqlite3.Row], args: argparse.Namespace) -> list[sqlite3.Row]:
+    """Only documents on --sites (or their sub-sites) whose title or file name has one of --keywords."""
+    sites = [_clean_host(s) for s in args.sites or []]
+    if sites:
+        rows = [r for r in rows if any(r["domain"] == s or r["domain"].endswith("." + s) for s in sites)]
+    keywords = keyword_list(args.keywords)
+    if keywords:
+        matcher = make_matcher(None, keywords)
+        rows = [r for r in rows if matcher(r)]
+    return rows
+
+
+def cmd_export(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
+    rows = db.export_rows(
+        conn, books_only=not args.all_documents, since=_since(args.days) if args.days else None, new_only=args.new_only
+    )
+    results = dedupe(result_rows(_narrow(rows, args), topics=topic_matchers(args.config)))
+    if args.reusable:
+        results = [r for r in results if r["rights"] in copyright_policy.REUSABLE]
+    if args.topics_only:
+        results = [r for r in results if r["topics"]]
+    if args.out.suffix == ".md":
+        results.sort(key=lambda r: not r["topics"])  # stable: topic books first, each group newest first
+        write_markdown(results, args.out, args.heading or "Books found", limit=args.rows)
+    else:
+        write_csv(results, args.out)
+    say(f"Wrote {len(results)} row(s) to {args.out}")
+    return 0
+
+
+def cmd_sheet(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
+    import os
+
+    from govweb.sheets import SheetsError, authorized_session, read_csv, upload
+
+    credentials = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    sheet_id = args.sheet_id or os.environ.get("GOOGLE_SHEET_ID", "").strip()
+    if not credentials or not sheet_id:
+        say("Needs GOOGLE_SERVICE_ACCOUNT_JSON in the environment and --sheet-id (or GOOGLE_SHEET_ID).")
+        return 1
+    tabs = {}
+    for spec in args.tab:
+        title, _, path = spec.partition("=")
+        if not path or not Path(path).exists():
+            say(f"Skipping tab {title!r}: no file {path!r}")
+            continue
+        tabs[title] = read_csv(Path(path))
+    try:
+        upload(authorized_session(credentials), sheet_id, tabs)
+    except SheetsError as exc:
+        say(f"Error: {exc}")
+        return 2
+    say(f"Updated {len(tabs)} tab(s): {', '.join(tabs)}")
     return 0
 
 
@@ -438,6 +612,12 @@ def _crawl_options(p: argparse.ArgumentParser, max_pages: int = 100) -> None:
     p.add_argument("--no-sitemaps", action="store_true", help="don't read sitemaps")
     p.add_argument("--workers", type=int, default=4, help="sites crawled in parallel (each site one at a time)")
     p.add_argument("--delay", type=float, default=1.0, help="seconds between requests to one host (default 1)")
+    p.add_argument("--max-minutes", type=float, help="stop each site after this many minutes")
+
+
+def _narrow_options(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--sites", nargs="+", action="extend", help="only documents on these sites and their sub-sites")
+    p.add_argument("--keywords", help="only documents whose title has one of these comma-separated words or phrases")
 
 
 def _document_filters(p: argparse.ArgumentParser) -> None:
@@ -512,7 +692,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, help="at most this many sites")
     _crawl_options(p)
     p.add_argument("--skip-recent-days", type=int, default=30, help="skip sites crawled in the last N days")
+    p.add_argument("--topic", action="append", help="follow links about this govbooks.toml topic first (repeatable)")
+    p.add_argument("--all-topics", action="store_true", help="follow links about any topic in govbooks.toml first")
+    p.add_argument("--keywords", help="comma-separated words or phrases whose links are followed first")
+    p.add_argument("--config", type=Path, help="govbooks config for topics (default: ./govbooks.toml)")
+    p.add_argument("--with-subsites", action="store_true",
+                   help="then crawl the sub-sites found under them (army.mil -> history.army.mil, ...)")
+    p.add_argument("--max-subsites", type=int, default=30, help="sub-sites crawled per run (default 30)")
+    p.add_argument("--subsite-pages", type=int, help="pages fetched per sub-site (default: --max-pages)")
+    p.add_argument("--subsites-only", action="store_true", help="crawl only the sub-sites of the chosen sites")
     p.set_defaults(func=cmd_crawl)
+
+    p = sub.add_parser("ntrs", help="search NASA's Technical Reports Server (reports with their PDFs)")
+    p.add_argument("query", help='words to search for, e.g. "Apollo 13"')
+    p.add_argument("--limit", type=int, default=300, help="at most this many reports (default 300)")
+    p.set_defaults(func=cmd_ntrs)
 
     p = sub.add_parser("docs", help="documents found by crawling")
     _document_filters(p)
@@ -560,6 +754,34 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--config", type=Path, help="govbooks config for topics")
     p.add_argument("--out", type=Path, help="write a report (.md or .csv)")
     p.set_defaults(func=cmd_watch_run)
+
+    p = sub.add_parser("amazon", help="check whether book-like documents are already sold on Amazon")
+    p.add_argument("--provider", choices=["catalog", "keepa", "creators"], help="default: from govbooks.toml")
+    p.add_argument("--limit", type=int, default=200, help="at most this many documents per run")
+    p.add_argument("--recheck-days", type=int, default=30, help="re-check documents checked over N days ago")
+    p.add_argument("--config", type=Path, help="govbooks config (Amazon provider, marketplace, topics)")
+    p.add_argument("--topics-only", action="store_true", help="only documents matching a topic (they go first anyway)")
+    _narrow_options(p)
+    p.add_argument("--verbose", action="store_true", help="print each search")
+    p.set_defaults(func=cmd_amazon)
+
+    p = sub.add_parser("export", help="write the results table (books, topics, publisher, rights, Amazon status)")
+    p.add_argument("--out", type=Path, required=True, help="a .csv file, or .md for a short readable table")
+    p.add_argument("--config", type=Path, help="govbooks config whose topics fill the topics column")
+    p.add_argument("--topics-only", action="store_true", help="only documents matching a topic")
+    p.add_argument("--heading", help="title of the .md table")
+    p.add_argument("--rows", type=int, default=50, help="rows in the .md table (default 50)")
+    _narrow_options(p)
+    p.add_argument("--days", type=int, help="only documents first found in the last N days")
+    p.add_argument("--new-only", action="store_true", help="only documents that appeared after a site's first crawl")
+    p.add_argument("--all-documents", action="store_true", help="include paperwork, not only book-like files")
+    p.add_argument("--reusable", action="store_true", help="only works that screen as free to reuse")
+    p.set_defaults(func=cmd_export)
+
+    p = sub.add_parser("sheet", help="upload CSV results into Google Sheet tabs (service account)")
+    p.add_argument("--sheet-id", help="the id in the sheet's URL (default: GOOGLE_SHEET_ID)")
+    p.add_argument("--tab", action="append", required=True, help='"Tab name=path.csv" (repeatable)')
+    p.set_defaults(func=cmd_sheet)
 
     p = sub.add_parser("copyright", help="copyright policy: federal rules and exceptions, and each state")
     p.add_argument("--state", help="details for one state, e.g. CA")

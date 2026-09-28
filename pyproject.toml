@@ -12,6 +12,7 @@ dependencies = ["requests>=2.31"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+sheets = ["google-auth>=2.20"]
 
 [project.scripts]
 govbooks = "govbooks.cli:main"

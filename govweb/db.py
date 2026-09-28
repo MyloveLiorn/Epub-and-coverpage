@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from govweb.classify import book_score, title_from_url
+from govweb.classify import book_score, clean_title, is_generic_title, meaningful_file_name, title_from_url
 from govweb.crawl import SiteResult
 from govweb.registry import Site
 
@@ -80,6 +81,18 @@ CREATE TABLE IF NOT EXISTS agencies (
 );
 CREATE INDEX IF NOT EXISTS agencies_host ON agencies (host);
 
+-- Whether each book-like document is already sold on Amazon.
+CREATE TABLE IF NOT EXISTS amazon_checks (
+    url TEXT PRIMARY KEY REFERENCES documents (url),
+    checked_at TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    query TEXT NOT NULL,
+    matching INTEGER NOT NULL,
+    asins TEXT NOT NULL DEFAULT '[]',
+    best_rank INTEGER,
+    price REAL
+);
+
 -- Saved searches for new books.
 CREATE TABLE IF NOT EXISTS watches (
     name TEXT PRIMARY KEY,
@@ -105,6 +118,13 @@ MIGRATIONS = {
 }
 
 
+# Changes to stored data that go with a code change, tracked in SQLite's user_version.
+# 1: document titles cleaned (HTML entities, text said twice, trailing dots).
+# 2: "Download »"-style titles replaced by the file name; Amazon matches re-checked with the
+#    stricter rules for short titles.
+DATA_VERSION = 2
+
+
 def now() -> str:
     # Microseconds keep "found after the last run" exact even for back-to-back runs. ISO strings
     # still sort correctly against older second-precision values ("...:00+00:00" < "...:00.5+00:00").
@@ -116,7 +136,31 @@ def connect(path: Path | str) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     _migrate(conn)
     conn.executescript(SCHEMA)
+    _upgrade_data(conn)
     return conn
+
+
+def _upgrade_data(conn: sqlite3.Connection) -> None:
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version < 1:
+        rows = conn.execute("SELECT url, title FROM documents").fetchall()
+        cleaned = [(clean_title(r["title"]) or r["title"], r["url"]) for r in rows]
+        conn.executemany(
+            "UPDATE documents SET title = ?, book_score = ? WHERE url = ?",
+            [(title, book_score(title, url), url) for (title, url), r in zip(cleaned, rows) if title != r["title"]],
+        )
+    if version < 2:
+        rows = conn.execute("SELECT url, title FROM documents").fetchall()
+        renamed = [(title_from_url(r["url"]), r["url"]) for r in rows
+                   if is_generic_title(r["title"]) and meaningful_file_name(r["url"])]  # fmt: skip
+        conn.executemany(
+            "UPDATE documents SET title = ?, book_score = ? WHERE url = ?",
+            [(title, book_score(title, url), url) for title, url in renamed],
+        )
+        conn.execute("DELETE FROM amazon_checks WHERE matching > 0")
+    if version < DATA_VERSION:
+        conn.execute(f"PRAGMA user_version = {DATA_VERSION}")
+        conn.commit()
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -166,6 +210,19 @@ def sync_sites(conn: sqlite3.Connection, sites: Iterable[Site]) -> tuple[int, in
 
 def get_site(conn: sqlite3.Connection, domain: str) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM sites WHERE domain = ?", (domain,)).fetchone()
+
+
+def remove_sites(conn: sqlite3.Connection, domains: list[str]) -> int:
+    """Take sites off the map with everything found on them."""
+    for domain in domains:
+        conn.execute(
+            "DELETE FROM amazon_checks WHERE url IN (SELECT url FROM documents WHERE domain = ?)", (domain,)
+        )
+        for table in ("documents", "pages"):
+            conn.execute(f"DELETE FROM {table} WHERE domain = ?", (domain,))
+        conn.execute("DELETE FROM sites WHERE domain = ? OR parent_domain = ?", (domain, domain))
+    conn.commit()
+    return len(domains)
 
 
 def registered_domain_of(conn: sqlite3.Connection, host: str) -> sqlite3.Row | None:
@@ -234,7 +291,10 @@ def select_sites(
     not_crawled_since: str | None = None,
     crawled_only: bool = False,
     limit: int | None = None,
+    rotation: bool = False,
 ) -> list[sqlite3.Row]:
+    """Sites matching the filters. With rotation, never-crawled sites come first, then the ones
+    crawled longest ago, so capped runs work through the whole map over time."""
     where, params = ["in_registry = 1"], []
     if domains:
         where.append(f"domain IN ({', '.join('?' for _ in domains)})")
@@ -255,16 +315,40 @@ def select_sites(
         params.append(not_crawled_since)
     if crawled_only:
         where.append("crawled_at IS NOT NULL")
-    sql = f"SELECT * FROM sites WHERE {' AND '.join(where)} ORDER BY level, state, organization, domain"
+    order = "level, state, organization, domain"
+    if rotation:
+        order = "crawled_at IS NOT NULL, crawled_at, source != 'registry', " + order
+    sql = f"SELECT * FROM sites WHERE {' AND '.join(where)} ORDER BY {order}"
     if limit:
         sql += " LIMIT ?"
         params.append(limit)
     return conn.execute(sql, params).fetchall()
 
 
+def select_subsites(
+    conn: sqlite3.Connection, parents: list[str], not_crawled_since: str | None = None
+) -> list[sqlite3.Row]:
+    """Sub-sites found under the given sites (history.army.mil under army.mil), never-crawled
+    ones first, then those crawled longest ago."""
+    if not parents:
+        return []
+    where = ["in_registry = 1", f"parent_domain IN ({', '.join('?' for _ in parents)})"]
+    params: list = list(parents)
+    if not_crawled_since:
+        where.append("(crawled_at IS NULL OR crawled_at < ?)")
+        params.append(not_crawled_since)
+    sql = f"SELECT * FROM sites WHERE {' AND '.join(where)} ORDER BY crawled_at IS NOT NULL, crawled_at, domain"
+    return conn.execute(sql, params).fetchall()
+
+
 def store_result(conn: sqlite3.Connection, result: SiteResult) -> int:
-    """Save a crawl. Returns the number of new sub-sites it discovered."""
+    """Save a crawl. Returns the number of new sub-sites it discovered.
+
+    Only pages worth revisiting are kept (home pages, publication listings and pages that linked
+    to documents), so the database stays small enough to carry from run to run."""
     stamp = now()
+    linked = {d.found_on for d in result.documents.values()}
+    pages = [p for p in result.pages if p.depth == 0 or p.hint_score > 0 or p.url in linked]
     conn.executemany(
         """
         INSERT INTO pages (url, domain, title, depth, status, hint_score, found_via, fetched_at)
@@ -272,7 +356,7 @@ def store_result(conn: sqlite3.Connection, result: SiteResult) -> int:
         ON CONFLICT (url) DO UPDATE SET title = excluded.title, depth = MIN(depth, excluded.depth),
             status = excluded.status, hint_score = excluded.hint_score, fetched_at = excluded.fetched_at
         """,
-        [(p.url, result.domain, p.title, p.depth, p.status, p.hint_score, p.found_via, stamp) for p in result.pages],
+        [(p.url, result.domain, p.title, p.depth, p.status, p.hint_score, p.found_via, stamp) for p in pages],
     )
     conn.executemany(
         """
@@ -352,6 +436,60 @@ def seed_urls(conn: sqlite3.Connection, domain: str, limit: int = 50) -> list[st
         (domain, domain, limit),
     ).fetchall()
     return [r["url"] for r in rows]
+
+
+# --- Amazon checks ------------------------------------------------------------------
+
+
+def documents_to_check(conn: sqlite3.Connection, older_than: str, limit: int = -1) -> list[sqlite3.Row]:
+    """Book-like documents never checked on Amazon, or last checked before ``older_than``; newest first."""
+    return conn.execute(
+        """
+        SELECT d.*, s.organization, s.suborganization
+        FROM documents d JOIN sites s ON s.domain = d.domain LEFT JOIN amazon_checks a ON a.url = d.url
+        WHERE d.book_score > 0 AND (a.url IS NULL OR a.checked_at < ?)
+        ORDER BY d.first_seen DESC, d.book_score DESC LIMIT ?
+        """,
+        (older_than, limit),
+    ).fetchall()
+
+
+def save_amazon_check(conn: sqlite3.Connection, check: dict) -> None:
+    conn.execute(
+        """
+        INSERT INTO amazon_checks (url, checked_at, provider, query, matching, asins, best_rank, price)
+        VALUES (:url, :checked_at, :provider, :query, :matching, :asins, :best_rank, :price)
+        ON CONFLICT (url) DO UPDATE SET checked_at = excluded.checked_at, provider = excluded.provider,
+            query = excluded.query, matching = excluded.matching, asins = excluded.asins,
+            best_rank = excluded.best_rank, price = excluded.price
+        """,
+        {**check, "asins": json.dumps(check["asins"])},
+    )
+    conn.commit()
+
+
+def export_rows(conn: sqlite3.Connection, books_only: bool = True, since: str | None = None,
+                new_only: bool = False) -> list[sqlite3.Row]:  # fmt: skip
+    """Documents with their site's owner and their latest Amazon check, newest first."""
+    where, params = ["1 = 1"], []
+    if books_only:
+        where.append("d.book_score > 0")
+    if since:
+        where.append("d.first_seen > ?")
+        params.append(since)
+    if new_only:
+        where.append("d.first_seen > s.first_crawled_at")
+    return conn.execute(
+        f"""
+        SELECT d.*, s.organization, s.suborganization, s.level, s.state, s.first_crawled_at,
+               a.checked_at AS amazon_checked_at, a.provider AS amazon_provider, a.matching AS amazon_matching,
+               a.asins AS amazon_asins, a.best_rank AS amazon_best_rank, a.query AS amazon_query
+        FROM documents d JOIN sites s ON s.domain = d.domain LEFT JOIN amazon_checks a ON a.url = d.url
+        WHERE {' AND '.join(where)}
+        ORDER BY d.first_seen DESC, d.book_score DESC
+        """,
+        params,
+    ).fetchall()
 
 
 # --- agencies -------------------------------------------------------------------
