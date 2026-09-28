@@ -103,6 +103,7 @@ step "${web[@]}" crawl --level federal --limit "$FEDERAL_SITES" "${topics[@]}" -
 
 # 5. Amazon: is each book already sold there? Books on the topics are checked first.
 step "${web[@]}" amazon --provider "$AMAZON_PROVIDER" --limit "$AMAZON_CHECKS" --config "$CONFIG"
+step "${web[@]}" count-pages --topics-only --config "$CONFIG" --limit 150
 
 # 6. The results tables.
 step "${web[@]}" export --config "$CONFIG" --out "$DATA/topic-books.csv" --topics-only

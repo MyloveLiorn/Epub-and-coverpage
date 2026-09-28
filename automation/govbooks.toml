@@ -17,17 +17,8 @@ marketplace = "www.amazon.com"
 # the file name scores 1). A book is kept when its score reaches min_score. Any "exclude" hit
 # drops the book.
 
-[topics.beekeeping]
-keywords = ["beekeeping", "honey bee", "apiculture", "beehive", "honey production"]
-exclude = []
-min_score = 3
-
-[topics.food_preservation]
-keywords = ["home canning", "food preservation", "canning", "pickling", "drying fruits", "curing meat"]
-exclude = ["canning industry", "cannery workers"]
-min_score = 3
-
-[topics.survival]
-keywords = ["survival", "wilderness survival", "evasion", "emergency preparedness", "first aid"]
-exclude = ["survival rate", "survival analysis", "cancer survival"]
+[topics.immigration]
+keywords = ["immigration", "immigrant", "naturalization", "citizenship", "refugee", "asylum", "emigration",
+            "Ellis Island", "newcomer", "new immigrants"]
+exclude = ["immigration court calendar", "hearing notice"]
 min_score = 3

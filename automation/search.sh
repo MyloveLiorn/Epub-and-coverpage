@@ -46,6 +46,7 @@ if [[ " ${sites[*]} " =~ nasa\.gov[\ /] ]]; then
   done
 fi
 "${web[@]}" amazon "${narrow[@]}" --provider "$AMAZON_PROVIDER" --limit 500 --config "$CONFIG" --verbose
+"${web[@]}" count-pages "${narrow[@]}" --all-documents --limit 150 --verbose
 "${web[@]}" export "${narrow[@]}" --all-documents --config "$CONFIG" --out "$OUT/books.csv"
 "${web[@]}" export "${narrow[@]}" --all-documents --config "$CONFIG" --out "$OUT/books.md" --rows 300 \
   --heading "Documents about \"$KEYWORDS\" on ${sites[*]}"
