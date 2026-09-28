@@ -652,6 +652,53 @@ def cmd_merge(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     return 0
 
 
+def cmd_track_books(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
+    """Watch the sheet's books for new versions (govweb.versions): its "Tracked books" tab."""
+    import os
+
+    from govweb import versions
+    from govweb.sheets import SheetsError, authorized_session, read_tab, tab_titles, upload
+
+    credentials = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    sheet_id = args.sheet_id or os.environ.get("GOOGLE_SHEET_ID", "").strip()
+    if not credentials or not sheet_id:
+        say("Needs GOOGLE_SERVICE_ACCOUNT_JSON in the environment and --sheet-id (or GOOGLE_SHEET_ID).")
+        return 1
+    today = versions.today_utc()
+    try:
+        session = authorized_session(credentials)
+        titles = tab_titles(session, sheet_id)
+        tracked = versions.from_tracked_tab(read_tab(session, sheet_id, versions.TAB)) if versions.TAB in titles else []
+        found = [book for title in titles if title.startswith(versions.SOURCE_TABS)
+                 for book in versions.from_search_tab(read_tab(session, sheet_id, title), args.min_pages)]  # fmt: skip
+    except SheetsError as exc:
+        say(f"Error: {exc}")
+        return 2
+    books = versions.merge(tracked, found, today)
+    due = sorted((b for b in books if b.active), key=lambda b: b.last_checked)[: args.limit]
+    say(f"Tracking {len(books)} book(s) ({len(books) - len(tracked)} new); checking {len(due)}...")
+    fetcher = make_fetcher(args)
+    events = []
+    for book in due:
+        versions.check(book, fetcher, today)
+        events += book.events
+        if args.verbose:
+            say(f"  {book.status[:40]:<40}  {book.title[:70]}")
+    try:
+        upload(session, sheet_id, {versions.TAB: [versions.COLUMNS] + [b.row() for b in books]}, formulas=True)
+    except SheetsError as exc:
+        say(f"Error: {exc}")
+        return 2
+    lines = [f"## New versions of tracked books ({today})", "",
+             f"{len(due)} of {len(books)} tracked book(s) checked; {len(events)} change(s).", ""]  # fmt: skip
+    lines += [f"- {event}" for event in events]
+    if args.summary:
+        args.summary.parent.mkdir(parents=True, exist_ok=True)
+        args.summary.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    say("\n".join(lines))
+    return 0
+
+
 def cmd_sheet(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
     import os
 
@@ -932,6 +979,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--heading", help="title of the .md table")
     p.add_argument("--rows", type=int, default=300, help="rows in the .md table (default 300)")
     p.set_defaults(func=cmd_merge)
+
+    p = sub.add_parser("track-books", help='watch the Google Sheet\'s books for new versions ("Tracked books" tab)')
+    p.add_argument("--sheet-id", help="the id in the sheet's URL (default: GOOGLE_SHEET_ID)")
+    p.add_argument("--min-pages", type=int, default=10, help="track the search tabs' books of this many pages or more")
+    p.add_argument("--limit", type=int, default=500, help="books checked per run, the least recently checked first")
+    p.add_argument("--summary", type=Path, help="write what changed to this .md file")
+    p.add_argument("--delay", type=float, default=1.0, help="seconds between requests to one host (default 1)")
+    p.add_argument("--verbose", action="store_true")
+    p.set_defaults(func=cmd_track_books)
 
     p = sub.add_parser("sheet", help="upload CSV results into Google Sheet tabs (service account)")
     p.add_argument("--sheet-id", help="the id in the sheet's URL (default: GOOGLE_SHEET_ID)")

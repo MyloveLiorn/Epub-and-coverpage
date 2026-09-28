@@ -1,0 +1,40 @@
+name: Track books
+
+# Weekly: look again at the books in the Google Sheet (and those added to its "Tracked books" tab
+# by hand) for new versions: a newer edition on the page that linked to a book, different content
+# at a book's address, or a book gone from its site. The "Tracked books" tab shows the result and
+# the run's page lists what changed.
+on:
+  schedule:
+    - cron: "41 5 * * 3"  # Wednesdays 05:41 UTC (08:41 in UTC+3)
+  workflow_dispatch:
+  # A push that changes automation/track-books.request also starts a check, on any branch.
+  push:
+    paths: [automation/track-books.request]
+
+permissions:
+  contents: read
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install ".[sheets]"
+
+      - name: Check the tracked books
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          # "Book Search Results" in the shared Drive folder; only people it is shared with can open it.
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID || '1gnjQu_hi_q-Y3gXBjmjdJerYwo9psUrGda3NQtCUtTA' }}
+        run: |
+          mkdir -p results
+          govweb --db results/track.db track-books --summary results/versions.md --verbose
+          cat results/versions.md >> "$GITHUB_STEP_SUMMARY"
