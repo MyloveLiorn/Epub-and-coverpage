@@ -26,7 +26,7 @@ from govweb.pdfpages import count_pages
 
 TAB = "Tracked books"
 SOURCE_TABS = ("Search - ", "States - ")  # the search tabs whose books are tracked
-MIN_PAGES = 10
+MIN_PAGES = 18
 MAX_BYTES = 150_000_000
 COLUMNS = ["Title (link)", "Link", "Authority", "State", "Source website", "Found on (page)", "Pages", "Track",
            "Status", "Newer version (link)", "Changed on", "Last checked", "Tracked since", "Added by", "Notes",

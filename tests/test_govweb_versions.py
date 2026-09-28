@@ -179,3 +179,12 @@ def test_paperwork_isnt_tracked_and_search_rows_are_kept_up_to_date():
     row.update({"Title (link)": "Refugee flyer", "Link": "https://x.gov/flyer.pdf"})
     mine = versions.from_tracked_tab([versions.COLUMNS, [row[c] for c in versions.COLUMNS]])
     assert [b.title for b in versions.merge(mine, [], today)] == ["Refugee flyer"]
+
+
+def test_books_under_18_pages_are_not_tracked():
+    assert versions.MIN_PAGES == 18
+    found = versions.from_search_tab(search_tab(
+        ("https://x.gov/a.pdf", "Refugee Resettlement Manual", "17", ""),  # too short
+        ("https://x.gov/b.pdf", "Refugee Resettlement Handbook", "18", ""),
+    ))
+    assert [b.title for b in found] == ["Refugee Resettlement Handbook"]
