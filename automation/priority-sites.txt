@@ -4,6 +4,7 @@
 # Each site adds roughly 10-20 minutes to the weekly run.
 
 army.mil
+govinfo.gov
 
 # navy.mil
 # af.mil
