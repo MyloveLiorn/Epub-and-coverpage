@@ -25,3 +25,11 @@ exclude = ["immigration court calendar", "hearing notice", "insane", "lunatic", 
            "asylum for the deaf", "asylum for the blind", "digital citizenship", "corporate citizenship",
            "good citizenship", "citizenship award"]
 min_score = 3
+
+[topics.tenant-landlord]
+keywords = ["tenant", "landlord", "renter", "eviction", "lease", "rental", "tenants' rights",
+            "landlord-tenant", "tenant-landlord", "renters' rights", "housing rights",
+            "security deposit", "fair housing", "habitability"]
+exclude = ["hearing notice", "court calendar", "docket", "expenditure report", "CDBG-DR",
+           "HAP contract", "housing assistance payment", "grant closeout"]
+min_score = 3
