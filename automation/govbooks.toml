@@ -33,3 +33,17 @@ keywords = ["tenant", "landlord", "renter", "eviction", "lease", "rental", "tena
 exclude = ["hearing notice", "court calendar", "docket", "expenditure report", "CDBG-DR",
            "HAP contract", "housing assistance payment", "grant closeout"]
 min_score = 3
+
+[topics.law-enforcement-careers]
+keywords = ["FBI careers", "CIA careers", "how to become an agent", "law enforcement careers",
+            "careers in law enforcement", "police officer career", "become a police officer",
+            "firefighter career", "become a firefighter", "fire service careers",
+            "U.S. Marshals", "Secret Service careers", "DEA careers", "ATF careers",
+            "Border Patrol careers", "CBP careers", "ICE careers", "TSA careers",
+            "state trooper", "state police careers", "highway patrol careers",
+            "career guide", "recruitment guide", "law enforcement training",
+            "police academy", "fire academy", "criminal justice careers"]
+exclude = ["most wanted", "press release", "news release", "crime statistics", "annual report",
+           "budget request", "congressional testimony", "inspector general", "audit report",
+           "court calendar", "hearing notice", "docket"]
+min_score = 3
