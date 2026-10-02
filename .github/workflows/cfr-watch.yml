@@ -1,0 +1,53 @@
+name: CFR new volumes
+
+# Daily: ask GovInfo which Code of Federal Regulations volumes exist for this year,
+# note the ones first seen today, and save the lists to the "cfr-data" branch
+# (its own branch: the weekly book search replaces the "data" branch each run).
+# The book PC reads cfr-<year>-published.json from there instead of asking GovInfo itself.
+on:
+  schedule:
+    - cron: "20 2 * * *" # daily 02:20 UTC, before the PC's morning CFR check
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cfr-watch
+  cancel-in-progress: false
+
+jobs:
+  cfr-watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Restore the previous lists
+        run: |
+          mkdir -p cfr-data
+          if git ls-remote --exit-code --heads origin cfr-data >/dev/null; then
+            git fetch --depth=1 origin cfr-data
+            git archive origin/cfr-data | tar -x -C cfr-data
+          fi
+
+      - name: Check GovInfo
+        env:
+          GOVINFO_API_KEY: ${{ secrets.GOVINFO_API_KEY }}
+        run: python automation/cfr_watch.py --year "$(date -u +%Y)" --out cfr-data
+
+      - name: Save to the cfr-data branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd cfr-data
+          git init -q -b cfr-data
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "CFR check $(date -u +%F)"
+          # One commit, replaced each day; first_seen dates carry the history.
+          git push -q -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" cfr-data
