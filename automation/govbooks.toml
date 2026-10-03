@@ -15,7 +15,8 @@ marketplace = "www.amazon.com"
 
 # Topics. A document matches a topic when a keyword is in its title (score 3; a keyword only in
 # the file name scores 1). A book is kept when its score reaches min_score. Any "exclude" hit
-# drops the book.
+# drops the book. Each topic is searched on its own: "Search states" searches one topic, and its
+# prefer_sites (parts of site names) are the state websites searched first for it.
 
 [topics.immigration]
 keywords = ["immigration", "immigrant", "naturalization", "citizenship", "refugee", "asylum", "emigration",
@@ -25,6 +26,8 @@ exclude = ["immigration court calendar", "hearing notice", "insane", "lunatic", 
            "asylum for the deaf", "asylum for the blind", "digital citizenship", "corporate citizenship",
            "good citizenship", "citizenship award"]
 min_score = 3
+# Refugee and "new Americans" offices, and the human-services departments that run them.
+prefer_sites = ["refugee", "immigra", "newamerican", "humanservice", "dhs", "dss", "dhhs"]
 
 [topics.tenant-landlord]
 keywords = ["tenant", "landlord", "renter", "eviction", "lease", "rental", "tenants' rights",
@@ -33,6 +36,8 @@ keywords = ["tenant", "landlord", "renter", "eviction", "lease", "rental", "tena
 exclude = ["hearing notice", "court calendar", "docket", "expenditure report", "CDBG-DR",
            "HAP contract", "housing assistance payment", "grant closeout"]
 min_score = 3
+# Housing agencies and housing finance agencies, consumer protection and the attorney general.
+prefer_sites = ["housing", "hfa", "tenant", "landlord", "consumer", "attorneygeneral"]
 
 [topics.law-enforcement-careers]
 keywords = ["FBI careers", "CIA careers", "how to become an agent", "law enforcement careers",
@@ -47,3 +52,7 @@ exclude = ["most wanted", "press release", "news release", "crime statistics", "
            "budget request", "congressional testimony", "inspector general", "audit report",
            "court calendar", "hearing notice", "docket"]
 min_score = 3
+# Police, troopers and highway patrol, peace-officer standards and training (POST), fire marshals
+# and fire academies, public safety, corrections, and the states' job sites.
+prefer_sites = ["police", "trooper", "patrol", "post", "lawenforcement", "sheriff", "fire", "publicsafety",
+                "dps", "corrections", "justice", "academy", "careers", "jobs"]

@@ -1,18 +1,21 @@
 name: Search states
 
-# On demand: search every state's own websites (or the states chosen) for the topics in
+# On demand: search every state's own websites (or the states chosen) for one topic of
 # automation/govbooks.toml, all states at once, and keep each state's best books: the longest
-# documents on the topics that aren't paperwork. The results go to a "States - <topic>" tab of
-# the Google Sheet and to the run's page. It starts from the weekly run's database but doesn't
-# change it.
+# documents of 18 pages or more on the topic that aren't paperwork. The results go to a
+# "States - <topic>" tab of the Google Sheet and to the run's page; each topic has its own tab.
+# It starts from the weekly run's database but doesn't change it.
 on:
   # A push that changes automation/search-states.request also starts a search (of every state,
-  # 5 books each), on any branch: the Run workflow button works only once this file is on the
-  # default branch.
+  # 5 books each) for the topic on its "topic:" line, on any branch: the Run workflow button works
+  # only once this file is on the default branch.
   push:
     paths: [automation/search-states.request]
   workflow_dispatch:
     inputs:
+      topic:
+        description: 'Topic (a [topics.NAME] of automation/govbooks.toml), e.g. "immigration"'
+        required: true
       states:
         description: 'States, e.g. "TX CA NY", or "all"'
         default: all
@@ -31,8 +34,22 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       states: ${{ steps.states.outputs.states }}
+      topic: ${{ steps.topic.outputs.topic }}
     steps:
       - uses: actions/checkout@v5
+
+      - id: topic
+        env:
+          TOPIC: ${{ inputs.topic }}
+        run: |
+          topic="${TOPIC:-$(sed -n 's/^topic:[[:space:]]*//p' automation/search-states.request | tail -n 1)}"
+          topic="$(printf '%s' "$topic" | tr -d '[:space:]')"
+          if ! grep -qxF "[topics.$topic]" automation/govbooks.toml; then
+            echo "No topic '$topic'. Topics: $(sed -n 's/^\[topics\.\(.*\)\]$/\1/p' automation/govbooks.toml | paste -sd' ')"
+            exit 1
+          fi
+          echo "topic=$topic" >> "$GITHUB_OUTPUT"
+          echo "Topic: $topic"
 
       - id: states
         env:
@@ -82,6 +99,7 @@ jobs:
       - name: Search ${{ matrix.state }}
         env:
           STATE: ${{ matrix.state }}
+          TOPIC: ${{ needs.plan.outputs.topic }}
           TOP: ${{ inputs.top || '5' }}
           SITES_PER_STATE: ${{ inputs.sites_per_state || '30' }}
           KEEPA_API_KEY: ${{ secrets.KEEPA_API_KEY }}
@@ -96,7 +114,7 @@ jobs:
           if-no-files-found: ignore
 
   combine:
-    needs: state
+    needs: [plan, state]
     if: ${{ !cancelled() && needs.state.result != 'skipped' }}
     runs-on: ubuntu-latest
     steps:
@@ -120,8 +138,9 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           # "Book Search Results" in the shared Drive folder; only people it is shared with can open it.
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID || '1gnjQu_hi_q-Y3gXBjmjdJerYwo9psUrGda3NQtCUtTA' }}
+          TOPIC: ${{ needs.plan.outputs.topic }}
         run: |
-          subject="$(sed -n 's/^\[topics\.\(.*\)\]$/\1/p' automation/govbooks.toml | paste -sd, | sed 's/,/, /g')"
+          subject="$TOPIC"
           web=(govweb --db results/merge.db)
           shopt -s nullglob
           tops=(results/*-top.csv) sheets=(results/*-sheet.csv) alls=(results/*-all.csv)

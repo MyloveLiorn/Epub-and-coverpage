@@ -1,6 +1,10 @@
 # Changing this file and pushing the change starts the "Search states" workflow for every state
 # (see .github/workflows/search-states.yml); the Actions tab's "Run workflow" button can also
-# choose states. Last request:
-2026-09-28 immigration, 5 books per state of 18+ pages, 37 states, covers and years, newest first
-2026-09-30 tenant-landlord, 5 books per state, 30 sites per state, all eligible states
-2026-10-01 law-enforcement-careers, 5 books per state, 30 sites per state, all eligible states
+# choose states. Each run searches ONE topic: the one on the last "topic:" line, a [topics.NAME]
+# of automation/govbooks.toml. Its results go to the sheet's "States - <topic>" tab.
+# Requests:
+# 2026-09-28 immigration, 5 books per state of 18+ pages, 37 states, covers and years, newest first
+# 2026-09-30 tenant-landlord (ran together with immigration: mixed results)
+# 2026-10-01 law-enforcement-careers (ran together with the other two: mixed results)
+# 2026-10-03 tenant-landlord alone, 5 books per state of 18+ pages (counted pages only)
+topic: tenant-landlord

@@ -17,7 +17,7 @@ SUBSITES="${SUBSITES:-20}"   # sub-sites searched too
 SUBSITE_PAGES="${SUBSITE_PAGES:-150}"
 SUBSITE_MINUTES="${SUBSITE_MINUTES:-10}"
 PAGE_COUNTS="${PAGE_COUNTS:-400}"   # PDFs whose pages are counted
-MIN_PAGES="${MIN_PAGES:-18}"        # documents of 1-17 pages are left out (uncounted ones stay)
+MIN_PAGES="${MIN_PAGES:-18}"        # books have 18 pages or more (uncounted documents are left out)
 if [ -z "${AMAZON_PROVIDER:-}" ]; then
   if [ -n "${KEEPA_API_KEY:-}" ]; then AMAZON_PROVIDER=keepa; else AMAZON_PROVIDER=catalog; fi
 fi

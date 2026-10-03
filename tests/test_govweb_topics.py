@@ -595,7 +595,12 @@ def test_state_search_keeps_a_states_best_books(army_cli, capsys):
     conn.commit()
     code, out = run(capsys, "export", "--out", "CA.csv", "--state", "CA", "--topics-only", "--config", "govbooks.toml",
                     "--min-pages", "10")  # fmt: skip
-    assert "Wrote 1 row(s)" in out  # the 3-page handbook is left out; the uncounted guide stays
+    assert "Wrote 0 row(s)" in out  # the 3-page handbook and the uncounted guide are both left out
+    conn.execute("UPDATE documents SET pages = 40 WHERE url LIKE '%bees%'")
+    conn.commit()
+    code, out = run(capsys, "export", "--out", "CA.csv", "--state", "CA", "--topics-only", "--config", "govbooks.toml",
+                    "--min-pages", "10")  # fmt: skip
+    assert "Wrote 1 row(s)" in out
     code, out = run(capsys, "export", "--out", "CA.csv", "--state", "CA", "--topics-only", "--config", "govbooks.toml",
                     "--sort", "pages", "--top", "2")  # fmt: skip
     code, out = run(capsys, "export", "--out", "TX.csv", "--state", "TX", "--topics-only", "--config", "govbooks.toml")

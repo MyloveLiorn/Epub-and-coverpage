@@ -123,14 +123,19 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && [ -f "$DATA/last-run.md" ]; then
   cat "$DATA/last-run.md" >> "$GITHUB_STEP_SUMMARY"
 fi
 
-# 7. Google Sheet, when its secrets are set.
+# 7. Google Sheet, when its secrets are set: a tab per topic (books of 18 pages or more), and the new books.
 if [ -n "${GOOGLE_SERVICE_ACCOUNT_JSON:-}" ] && [ -n "${GOOGLE_SHEET_ID:-}" ]; then
-  step "${web[@]}" export --config "$CONFIG" --out "$DATA/sheet-topic.csv" --topics-only --sheet "Weekly: topics"
+  tabs=()
+  for topic in $(sed -n 's/^\[topics\.\(.*\)\]$/\1/p' "$CONFIG"); do
+    awk -v t="[topics.$topic]" '/^\[/ { keep = ($0 !~ /^\[topics\./) || ($0 == t) } keep' "$CONFIG" \
+      > "$DATA/topic-$topic.toml"
+    step "${web[@]}" export --config "$DATA/topic-$topic.toml" --out "$DATA/sheet-$topic.csv" --topics-only \
+      --min-pages 18 --sheet "Weekly: $topic"
+    tabs+=(--tab "Topic books - $topic=$DATA/sheet-$topic.csv")
+  done
   step "${web[@]}" export --config "$CONFIG" --out "$DATA/sheet-new.csv" --new-only --days 8 --sheet "Weekly: new"
-  step "${web[@]}" sheet --formulas \
-    --tab "Topic books=$DATA/sheet-topic.csv" \
-    --tab "New books=$DATA/sheet-new.csv"
-  rm -f "$DATA/sheet-topic.csv" "$DATA/sheet-new.csv"
+  step "${web[@]}" sheet --formulas "${tabs[@]}" --tab "New books=$DATA/sheet-new.csv"
+  rm -f "$DATA"/sheet-*.csv "$DATA"/topic-*.toml
 fi
 
 if [ "${#failed[@]}" -gt 0 ]; then
