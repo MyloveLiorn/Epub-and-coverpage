@@ -1,0 +1,17 @@
+# Never searched and never listed in results. One per line: a site (ecfr.gov, which also covers
+# its sub-sites) or a site plus the start of a path (govinfo.gov/app/collection/cfr).
+# Lines starting with # are ignored.
+
+# Code of Federal Regulations: covered elsewhere.
+ecfr.gov
+govinfo.gov/app/collection/cfr
+govinfo.gov/app/details/cfr-
+govinfo.gov/content/pkg/cfr-
+govinfo.gov/link/cfr
+copyright.gov/title37
+# USPTO's "Trademark Rules and Statutes" compilations: 37 CFR Part 2 with the Lanham Act.
+uspto.gov/sites/default/files/documents/trademark-rules-and-stat
+uspto.gov/sites/default/files/documents/trademark_rules_and_stat
+uspto.gov/sites/default/files/documents/trademark_rules_statutes
+uspto.gov/sites/default/files/documents/trademark-rules-statutes
+uspto.gov/sites/default/files/trademark-statutes

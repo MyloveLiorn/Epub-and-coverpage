@@ -214,7 +214,7 @@ Each results row gives the title, the matching topics, the publisher, level and 
    - `GOOGLE_SERVICE_ACCOUNT_JSON`: the whole contents of the JSON key file.
    - `GOOGLE_SHEET_ID`: the long id in the sheet's web address, between `/d/` and `/edit`.
 
-Each run then replaces three tabs: **Topic books**, **New books** and **Website books**. Cells are written as plain text, so nothing from a website can run as a formula.
+Each run then replaces a **Topic books - &lt;topic&gt;** tab for each topic (books of 18 pages or more) and the **New books** tab. The "Search states" workflow searches one topic per run and writes it to its own **States - &lt;topic&gt;** tab. Cells are written as plain text, so nothing from a website can run as a formula.
 
 This repository is public, so the `data` branch is public too. It holds only public information about government books; keys stay private in the secrets.
 

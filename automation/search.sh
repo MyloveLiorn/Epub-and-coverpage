@@ -15,6 +15,9 @@ PAGES="${PAGES:-400}"        # pages per site
 MINUTES="${MINUTES:-40}"     # minutes per site at most
 SUBSITES="${SUBSITES:-20}"   # sub-sites searched too
 SUBSITE_PAGES="${SUBSITE_PAGES:-150}"
+SUBSITE_MINUTES="${SUBSITE_MINUTES:-10}"
+PAGE_COUNTS="${PAGE_COUNTS:-400}"   # PDFs whose pages are counted
+MIN_PAGES="${MIN_PAGES:-18}"        # books have 18 pages or more (uncounted documents are left out)
 if [ -z "${AMAZON_PROVIDER:-}" ]; then
   if [ -n "${KEEPA_API_KEY:-}" ]; then AMAZON_PROVIDER=keepa; else AMAZON_PROVIDER=catalog; fi
 fi
@@ -34,7 +37,7 @@ narrow=(--sites "${sites[@]}" --keywords "$KEYWORDS")
 "${web[@]}" sync || true  # the .gov map, so sub-sites are recognized
 "${web[@]}" crawl "${sites[@]}" --keywords "$KEYWORDS" --max-pages "$PAGES" --max-depth 5 \
   --max-minutes "$MINUTES" --with-subsites --max-subsites "$SUBSITES" --subsite-pages "$SUBSITE_PAGES" \
-  --skip-recent-days 0 --workers 8
+  --subsite-minutes "$SUBSITE_MINUTES" --skip-recent-days 0 --workers 8
 # NASA's reports live in its Technical Reports Server, a search application a crawl can't read;
 # it has an open API, searched here for each keyword when a NASA site is chosen.
 if [[ " ${sites[*]} " =~ nasa\.gov[\ /] ]]; then
@@ -46,9 +49,19 @@ if [[ " ${sites[*]} " =~ nasa\.gov[\ /] ]]; then
   done
 fi
 "${web[@]}" amazon "${narrow[@]}" --provider "$AMAZON_PROVIDER" --limit 500 --config "$CONFIG" --verbose
-"${web[@]}" export "${narrow[@]}" --all-documents --config "$CONFIG" --out "$OUT/books.csv"
-"${web[@]}" export "${narrow[@]}" --all-documents --config "$CONFIG" --out "$OUT/books.md" --rows 300 \
+# Page counts, covers and years (count-pages). Tables list the latest published first, paperwork last.
+"${web[@]}" count-pages "${narrow[@]}" --all-documents --limit "$PAGE_COUNTS" --verbose
+"${web[@]}" export "${narrow[@]}" --all-documents --sort year --min-pages "$MIN_PAGES" --config "$CONFIG" --out "$OUT/books.csv"
+"${web[@]}" export "${narrow[@]}" --all-documents --sort year --min-pages "$MIN_PAGES" --config "$CONFIG" --out "$OUT/books.md" --rows 300 \
   --heading "Documents about \"$KEYWORDS\" on ${sites[*]}"
+
+# The Google Sheet: a tab per search, when the sheet's secrets are set.
+if [ -n "${GOOGLE_SERVICE_ACCOUNT_JSON:-}" ] && [ -n "${GOOGLE_SHEET_ID:-}" ]; then
+  tab="Search - $(echo "$KEYWORDS" | tr -cd '[:alnum:] ,-' | cut -c1-80)"
+  "${web[@]}" export "${narrow[@]}" --all-documents --sort year --min-pages "$MIN_PAGES" --config "$CONFIG" --out "$OUT/sheet.csv" \
+    --sheet "$KEYWORDS"
+  "${web[@]}" sheet --formulas --tab "$tab=$OUT/sheet.csv"
+fi
 
 cat "$OUT/books.md"
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then cat "$OUT/books.md" >> "$GITHUB_STEP_SUMMARY"; fi

@@ -76,13 +76,21 @@ if [ "${#priority[@]}" -gt 0 ]; then
 fi
 
 # 3. State websites in depth: a few states each run, every state in turn (by week of the
-#    year), or the states asked for. In each state, sites never searched come first, and among
-#    them those whose names suggest books (library, archives, history, geology, ...).
+#    year), or the states asked for. In each state, the state's official website comes first,
+#    then sites never searched, those whose names suggest books (library, archives, history,
+#    geology, ...) leading.
 ALL_STATES=(AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO
             MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY)
+# States whose publications can't be reused are left out (govweb/data/excluded_states.txt).
+skip=" $(sed -e 's/#.*//' govweb/data/excluded_states.txt | tr '\n' ' ') "
+usable=()
+for st in "${ALL_STATES[@]}"; do [[ "$skip" == *" $st "* ]] || usable+=("$st"); done
+ALL_STATES=("${usable[@]}")
 states=()
 for st in $STATES; do
-  if [[ "$st" =~ ^[A-Za-z]{2}$ ]]; then states+=("${st^^}"); else echo "Ignoring state '$st'"; fi
+  if [[ ! "$st" =~ ^[A-Za-z]{2}$ ]]; then echo "Ignoring state '$st'"
+  elif [[ "$skip" == *" ${st^^} "* ]]; then echo "Skipping ${st^^}: its publications can't be reused"
+  else states+=("${st^^}"); fi
 done
 if [ "${#states[@]}" -eq 0 ]; then
   start=$(( (10#$(date -u +%V) * STATES_PER_RUN) % ${#ALL_STATES[@]} ))
@@ -90,6 +98,8 @@ if [ "${#states[@]}" -eq 0 ]; then
 fi
 echo "States this run: ${states[*]}"
 for st in "${states[@]}"; do
+  # The state's official website (texas.gov, ...) goes first: it links to the state's agencies.
+  step "${web[@]}" portals "$st"
   step "${web[@]}" crawl --level state --state "$st" --limit "$STATE_SITES" "${topics[@]}" \
     --max-pages "$STATE_PAGES" --max-depth 4 --max-minutes "$STATE_SITE_MINUTES" --workers 8
 done
@@ -100,6 +110,7 @@ step "${web[@]}" crawl --level federal --limit "$FEDERAL_SITES" "${topics[@]}" -
 
 # 5. Amazon: is each book already sold there? Books on the topics are checked first.
 step "${web[@]}" amazon --provider "$AMAZON_PROVIDER" --limit "$AMAZON_CHECKS" --config "$CONFIG"
+step "${web[@]}" count-pages --topics-only --config "$CONFIG" --limit 150
 
 # 6. The results tables.
 step "${web[@]}" export --config "$CONFIG" --out "$DATA/topic-books.csv" --topics-only
@@ -112,12 +123,19 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && [ -f "$DATA/last-run.md" ]; then
   cat "$DATA/last-run.md" >> "$GITHUB_STEP_SUMMARY"
 fi
 
-# 7. Google Sheet, when its secrets are set.
+# 7. Google Sheet, when its secrets are set: a tab per topic (books of 18 pages or more), and the new books.
 if [ -n "${GOOGLE_SERVICE_ACCOUNT_JSON:-}" ] && [ -n "${GOOGLE_SHEET_ID:-}" ]; then
-  step "${web[@]}" sheet \
-    --tab "Topic books=$DATA/topic-books.csv" \
-    --tab "New books=$DATA/new-books.csv" \
-    --tab "Website books=$DATA/website-books.csv"
+  tabs=()
+  for topic in $(sed -n 's/^\[topics\.\(.*\)\]$/\1/p' "$CONFIG"); do
+    awk -v t="[topics.$topic]" '/^\[/ { keep = ($0 !~ /^\[topics\./) || ($0 == t) } keep' "$CONFIG" \
+      > "$DATA/topic-$topic.toml"
+    step "${web[@]}" export --config "$DATA/topic-$topic.toml" --out "$DATA/sheet-$topic.csv" --topics-only \
+      --min-pages 18 --sheet "Weekly: $topic"
+    tabs+=(--tab "Topic books - $topic=$DATA/sheet-$topic.csv")
+  done
+  step "${web[@]}" export --config "$CONFIG" --out "$DATA/sheet-new.csv" --new-only --days 8 --sheet "Weekly: new"
+  step "${web[@]}" sheet --formulas "${tabs[@]}" --tab "New books=$DATA/sheet-new.csv"
+  rm -f "$DATA"/sheet-*.csv "$DATA"/topic-*.toml
 fi
 
 if [ "${#failed[@]}" -gt 0 ]; then

@@ -5,8 +5,10 @@ name: Find government books
 # books, check Amazon, and save the results (CSV tables and the database) to the "data" branch.
 # automation/priority-sites.txt lists the priority sites.
 on:
-  schedule:
-    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  # The Monday schedule is paused until the results have been checked. To turn it back on,
+  # put these two lines back under "on:":
+  #   schedule:
+  #     - cron: "17 6 * * 1" # Mondays 06:17 UTC
   workflow_dispatch:
     inputs:
       extra_sites:
@@ -41,7 +43,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install
-        run: pip install ".[sheets]"
+        run: pip install ".[sheets,covers]"
 
       - name: Restore previous results from the data branch
         run: |
@@ -65,7 +67,7 @@ jobs:
           AMAZON_CREATORS_CREDENTIAL_SECRET: ${{ secrets.AMAZON_CREATORS_CREDENTIAL_SECRET }}
           AMAZON_PARTNER_TAG: ${{ secrets.AMAZON_PARTNER_TAG }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID || '1gnjQu_hi_q-Y3gXBjmjdJerYwo9psUrGda3NQtCUtTA' }}
         run: automation/run.sh
 
       - name: Save results to the data branch

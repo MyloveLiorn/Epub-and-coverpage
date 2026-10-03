@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS documents (
     found_on TEXT,
     found_via TEXT,
     book_score INTEGER NOT NULL DEFAULT 0,
+    pages INTEGER,  -- NULL: not counted yet; 0: couldn't be counted
+    cover TEXT,  -- what the PDF opens with (govweb.covers); NULL: not looked at; '': couldn't tell
+    year INTEGER,  -- the year the PDF names on its first page, or it was made; NULL: not looked at; 0: unknown
     first_seen TEXT NOT NULL,
     last_seen TEXT NOT NULL
 );
@@ -114,7 +117,7 @@ MIGRATIONS = {
         "source": "TEXT NOT NULL DEFAULT 'registry'",
         "first_crawled_at": "TEXT",
     },
-    "documents": {"book_score": "INTEGER NOT NULL DEFAULT 0"},
+    "documents": {"book_score": "INTEGER NOT NULL DEFAULT 0", "pages": "INTEGER", "cover": "TEXT", "year": "INTEGER"},
 }
 
 
@@ -122,7 +125,7 @@ MIGRATIONS = {
 # 1: document titles cleaned (HTML entities, text said twice, trailing dots).
 # 2: "Download »"-style titles replaced by the file name; Amazon matches re-checked with the
 #    stricter rules for short titles.
-DATA_VERSION = 2
+DATA_VERSION = 3
 
 
 def now() -> str:
@@ -158,6 +161,16 @@ def _upgrade_data(conn: sqlite3.Connection) -> None:
             [(title, book_score(title, url), url) for title, url in renamed],
         )
         conn.execute("DELETE FROM amazon_checks WHERE matching > 0")
+    if version < 3:  # letters to Congress, court filings, slides and the like count as paperwork now,
+        # and titles lose file sizes ("[PDF, 1 MB]")
+        rows = conn.execute("SELECT url, title, book_score FROM documents").fetchall()
+        changed = []
+        for r in rows:
+            title = clean_title(r["title"]) or r["title"]
+            score = book_score(title, r["url"])
+            if (title, score) != (r["title"], r["book_score"]):
+                changed.append((title, score, r["url"]))
+        conn.executemany("UPDATE documents SET title = ?, book_score = ? WHERE url = ?", changed)
     if version < DATA_VERSION:
         conn.execute(f"PRAGMA user_version = {DATA_VERSION}")
         conn.commit()
@@ -363,6 +376,10 @@ def store_result(conn: sqlite3.Connection, result: SiteResult) -> int:
         INSERT INTO documents (url, domain, title, file_type, found_on, found_via, book_score, first_seen, last_seen)
         VALUES (:url, :domain, :title, :file_type, :found_on, :found_via, :book_score, :stamp, :stamp)
         ON CONFLICT (url) DO UPDATE SET last_seen = excluded.last_seen,
+            found_on = CASE WHEN documents.found_via = 'sitemap' AND excluded.found_via != 'sitemap'
+                            THEN excluded.found_on ELSE documents.found_on END,
+            found_via = CASE WHEN documents.found_via = 'sitemap' AND excluded.found_via != 'sitemap'
+                             THEN excluded.found_via ELSE documents.found_via END,
             title = CASE WHEN documents.title = :fallback THEN excluded.title ELSE documents.title END,
             book_score = CASE WHEN documents.title = :fallback THEN excluded.book_score ELSE documents.book_score END
         """,
@@ -441,11 +458,34 @@ def seed_urls(conn: sqlite3.Connection, domain: str, limit: int = 50) -> list[st
 # --- Amazon checks ------------------------------------------------------------------
 
 
+def documents_to_count(conn: sqlite3.Connection, books_only: bool = True, covers: bool = False) -> list[sqlite3.Row]:
+    """PDFs whose pages haven't been counted (with ``covers``, or whose cover hasn't been looked
+    at), with their site's owner; newest first."""
+    return conn.execute(
+        f"""
+        SELECT d.*, s.organization, s.suborganization, s.level, s.state
+        FROM documents d JOIN sites s ON s.domain = d.domain
+        WHERE d.file_type = 'pdf' AND (d.pages IS NULL {'OR d.cover IS NULL OR d.year IS NULL' if covers else ''})
+              {'AND d.book_score > 0' if books_only else ''}
+        ORDER BY d.first_seen DESC, d.book_score DESC
+        """
+    ).fetchall()
+
+
+def save_pages(conn: sqlite3.Connection, url: str, pages: int, cover: str | None = None,
+               year: int | None = None) -> None:  # fmt: skip
+    """Pages (0: couldn't be counted), what the PDF opens with (govweb.covers; "": couldn't tell)
+    and its year (0: unknown)."""
+    conn.execute("UPDATE documents SET pages = ?, cover = COALESCE(?, cover), year = COALESCE(?, year) WHERE url = ?",
+                 (pages, cover, year, url))  # fmt: skip
+    conn.commit()
+
+
 def documents_to_check(conn: sqlite3.Connection, older_than: str, limit: int = -1) -> list[sqlite3.Row]:
     """Book-like documents never checked on Amazon, or last checked before ``older_than``; newest first."""
     return conn.execute(
         """
-        SELECT d.*, s.organization, s.suborganization
+        SELECT d.*, s.organization, s.suborganization, s.level, s.state
         FROM documents d JOIN sites s ON s.domain = d.domain LEFT JOIN amazon_checks a ON a.url = d.url
         WHERE d.book_score > 0 AND (a.url IS NULL OR a.checked_at < ?)
         ORDER BY d.first_seen DESC, d.book_score DESC LIMIT ?

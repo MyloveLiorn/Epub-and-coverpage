@@ -90,6 +90,23 @@ def test_sitemap_pages_on_a_topic_are_crawled():
     assert "https://army.mil/article/1/unit-news" not in fetcher.requested
 
 
+def test_a_document_is_credited_to_the_page_linking_it_not_the_sitemap():
+    sitemap = b"""<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+      <url><loc>https://army.mil/files/FM-21-76.pdf</loc></url>
+    </urlset>"""
+    pages = {
+        **ARMY,
+        "https://army.mil/sitemap.xml": (200, "application/xml", sitemap),
+        "https://army.mil/training/field-survival": (200, "text/html", html(
+            "Survival training", ("/files/FM-21-76.pdf", "Survival Field Manual"))),
+    }  # fmt: skip
+    result = crawl_site("army.mil", FakeFetcher(pages), CrawlLimits(max_pages=5, topic_keywords=["survival"]))
+    doc = result.documents["https://army.mil/files/FM-21-76.pdf"]
+    assert (doc.found_on, doc.found_via, doc.title) == (
+        "https://army.mil/training/field-survival", "link", "Survival Field Manual"
+    )
+
+
 def test_guess_owner():
     assert guess_owner("army.mil") == ("federal", None)
     assert guess_owner("fs.fed.us") == ("federal", None)
@@ -159,7 +176,7 @@ def test_cli_export_topics_column_and_summary(army_cli, capsys):
     assert text.startswith("## Found this week\n\n3 book(s).")
     lines = [line for line in text.splitlines() if line.startswith("| [")]
     assert "Visitor Guide" in lines[-1]  # topic books first
-    assert "[Survival Field Manual](https://army.mil/files/FM-21-76.pdf) | survival |" in text
+    assert "[Survival Field Manual](https://army.mil/files/FM-21-76.pdf) |  |  |  | survival |" in text
 
 
 def test_cli_amazon_checks_topic_books_first(army_cli, capsys, monkeypatch):
@@ -178,7 +195,7 @@ def test_a_site_that_redirects_to_another_mapped_site_is_not_crawled_twice(army_
     conn = db.connect("w.db")
     for host in ("presidio.gov", "presidiotrust.gov"):
         db.add_site(conn, host, organization="Presidio Trust", level="federal")
-    code, out = run(capsys, "crawl", "presidiotrust.gov", "--no-sitemaps")
+    code, out = run(capsys, "crawl", "--search", "presidiotrust", "--no-sitemaps")
     assert "presidiotrust.gov: same website as www.presidio.gov, not crawled twice" in out
     assert db.get_site(conn, "presidiotrust.gov")["crawl_status"] == "alias"
     assert db.select_documents(conn) == []
@@ -269,8 +286,10 @@ def test_cli_state_crawl_puts_publisher_sites_first(army_cli, capsys):
         db.add_site(conn, host, organization=host, level="state", state="CA")
         army_cli.pages[f"https://{host}/"] = (200, "text/html", html(host))
     code, out = run(capsys, "crawl", "--level", "state", "--state", "CA", "--limit", "1", "--no-sitemaps")
-    assert code == 0 and "archives.ca.gov" in out and "aaa.ca.gov" not in out
-    run(capsys, "crawl", "--level", "state", "--state", "CA", "--no-sitemaps")  # the rest, ca.gov included
+    assert code == 0 and "ca.gov:" in out  # the state's portal first
+    code, out = run(capsys, "crawl", "--level", "state", "--state", "CA", "--limit", "1", "--no-sitemaps")
+    assert "archives.ca.gov" in out and "aaa.ca.gov" not in out  # then publisher-like names
+    run(capsys, "crawl", "--level", "state", "--state", "CA", "--no-sitemaps")  # the rest
     code, out = run(capsys, "crawl", "--level", "state", "--state", "CA", "--no-sitemaps")
     assert (code, out.strip()) == (0, "Nothing to crawl: every chosen site was crawled recently.")
 
@@ -306,10 +325,105 @@ def test_generic_link_texts_and_file_names_fall_back_to_the_page_title():
 def test_one_row_per_title_per_website():
     from govweb.export import dedupe
 
-    rows = [{"website": "txcourts.gov", "title": "Emergency Preparedness Guide"},
-            {"website": "txcourts.gov", "title": "Emergency  preparedness guide"},
-            {"website": "texas.gov", "title": "Emergency Preparedness Guide"}]  # fmt: skip
+    rows = [{"website": "txcourts.gov", "title": "Emergency Preparedness Guide", "link": "https://txcourts.gov/a.pdf"},
+            {"website": "txcourts.gov", "title": "Emergency  preparedness guide", "link": "https://txcourts.gov/b.pdf"},
+            {"website": "texas.gov", "title": "Emergency Preparedness Guide", "link": "https://texas.gov/c.pdf"}]
+    for row in rows:
+        row["pages"] = ""
     assert [r["website"] for r in dedupe(rows)] == ["txcourts.gov", "texas.gov"]
+
+
+def test_one_row_per_book_whatever_its_language():
+    from govweb.classify import book_score, split_language, title_key
+    from govweb.export import dedupe
+
+    assert split_language("Asylum Guide - Spanish") == ("Asylum Guide", "spanish")
+    assert split_language("Welcome to the United States (Chinese Simplified)")[0] == "Welcome to the United States"
+    assert split_language("Asylum guide in Haitian Creole") == ("Asylum guide", "in haitian creole")
+    assert split_language("asylum guide es", file_name=True) == ("asylum guide", "es")
+    # A language inside the title is part of it: a different book.
+    assert title_key("Chinese Immigration to America") != title_key("Korean Immigration to America")
+    assert split_language("Spanish") == ("Spanish", "")
+    # File names: codes, and numbers or accessibility marks around them; not chapter numbers.
+    assert split_language("info guide prospective asylum applicants french 0", file_name=True)[0] == (
+        "info guide prospective asylum applicants"
+    )
+    assert split_language("Information Sheet Safe Haven 508 PSH", file_name=True)[0] == "Information Sheet Safe Haven 508"
+    assert split_language("STEM Visa Guide RUS", file_name=True) == ("STEM Visa Guide", "rus")
+    assert split_language("Chapter 12", file_name=True) == ("Chapter 12", "")
+
+    def row(title, link, pages=""):
+        return {"website": "uscis.gov", "title": title, "link": "https://www.uscis.gov/files/" + link, "pages": pages}
+
+    rows = [row("Asylum Guide - Spanish", "asylum-guide-spanish.pdf", 30),
+            row("Asylum Guide", "asylum-guide.pdf"),
+            row("Guía de asilo", "asylum-guide-es.pdf", 32),  # a translated title, but the same file name
+            row("Chinese Immigration to America", "chinese.pdf"),
+            row("Korean Immigration to America", "korean.pdf")]  # fmt: skip
+    # One address written two ways (%20 or a space, with or without the port) is one document.
+    same = [{"website": "dhs.maryland.gov", "title": "Skilled Immigrant Taskforce Report", "pages": 23,
+             "link": "https://dhs.maryland.gov/documents/Annual%20Reports/Task%20Force%20FY17.pdf"},
+            {"website": "dhs.maryland.gov", "title": "Skilled Immigrant Task Force Annual Report FY17.", "pages": 23,
+             "link": "https://dhs.maryland.gov:443/documents/Annual Reports/Task Force FY17.pdf"}]  # fmt: skip
+    assert len(dedupe(same)) == 1
+    out = dedupe(rows)
+    assert [(r["title"], r["versions"], r["pages"]) for r in out] == [
+        ("Asylum Guide", 3, 32), ("Chinese Immigration to America", 1, ""), ("Korean Immigration to America", 1, "")
+    ]
+    # Paperwork: letters to Congress and court filings.
+    assert book_score("Response to Representative Bonamici", "https://a.gov/x.pdf") < 0
+    assert book_score("Ahmed v. DHS Status Report", "https://a.gov/x.pdf") < 0
+    assert book_score("Title V Guide to Refugee Programs", "https://a.gov/x.pdf") > 0
+    assert book_score("DHS/USCIS/PIA-056 USCIS Electronic Immigration System", "https://a.gov/x.pdf") < 0
+    assert book_score("Asylum Quarterly Stakeholder Engagement", "https://a.gov/x.pdf") < 0
+
+
+def test_state_site_paperwork_and_link_text_noise():
+    from govweb.classify import book_score, clean_title, is_generic_title
+
+    url = "https://x.gov/a.pdf"
+    for paperwork in ("Attorney General Weiser joins amicus briefs opposing the administration",
+                      "SOC 887A (12/20) Cash Assistance Program for Immigrants",
+                      "2402.15.10 Verification of U.S. Citizenship",
+                      "Employment of Illegal Immigrants - Certification by Bidder/Contractor"):  # fmt: skip
+        assert book_score(paperwork, url) < 0, paperwork
+    for book in ("Minnesota Refugee Health Screening Manual", "2017 Iowa Refugee Health Program Report",
+                 "Documenting Immigrants: An Examination of Immigration and Naturalization Service Case Files"):
+        assert book_score(book, url) > 0, book
+    assert clean_title("Opens in a new window Refugee and Immigrant Student Policies") == (
+        "Refugee and Immigrant Student Policies"
+    )
+    assert clean_title("Learn More about New American Integration Report") == "New American Integration Report"
+    assert clean_title("Stop Immigration Scams! (English) (Archive") == "Stop Immigration Scams! (English)"
+    assert clean_title("Carr Backs Rule on Proof of Citizenship | Office") == "Carr Backs Rule on Proof of Citizenship"
+    assert is_generic_title("Icon of an upward economic growth chart")
+
+
+def test_titles_lose_file_sizes():
+    from govweb.classify import clean_title
+
+    assert clean_title("Evaluation of Livelihoods Support to Syrian Refugees [") == (
+        "Evaluation of Livelihoods Support to Syrian Refugees"
+    )
+    assert clean_title("Refugee Programs in the Caucasus [1 MB]") == "Refugee Programs in the Caucasus"
+    assert clean_title("Refugee Employment (139 KB)") == "Refugee Employment"
+    assert clean_title("Annual Report (PDF, 2.3 MB)") == "Annual Report"
+    assert clean_title("Annual Report (2019)") == "Annual Report (2019)"
+    assert clean_title("Asylum Guide (Spanish)") == "Asylum Guide (Spanish)"
+
+
+def test_book_order_puts_long_documents_first_and_paperwork_last():
+    from govweb.export import book_order
+
+    rows = [{"title": "Fact sheet", "topics": "immigration", "pages": 2, "book_score": 1},
+            {"title": "Court exhibit", "topics": "immigration", "pages": 300, "book_score": -2},
+            {"title": "Unknown length", "topics": "immigration", "pages": "", "book_score": 1},
+            {"title": "Manual", "topics": "immigration", "pages": 271, "book_score": 2},
+            {"title": "Off topic", "topics": "", "pages": 500, "book_score": 3},
+            {"title": "Study guide", "topics": "immigration", "pages": 44, "book_score": 2}]  # fmt: skip
+    assert [r["title"] for r in sorted(rows, key=book_order)] == [
+        "Manual", "Study guide", "Unknown length", "Fact sheet", "Court exhibit", "Off topic"
+    ]
 
 
 def test_cli_export_and_amazon_narrowed_to_sites_and_keywords(army_cli, capsys, monkeypatch):
@@ -357,3 +471,241 @@ def test_cli_ntrs_results_join_the_table(army_cli, capsys, monkeypatch, fake_htt
     code, out = run(capsys, "export", "--out", "n.csv", "--sites", "nasa.gov", "--keywords", "Apollo 13", "--all-documents")
     with open("n.csv", newline="") as fh:
         assert sorted(r["title"] for r in csv.DictReader(fh)) == ["Apollo 13 mission report", "Report of Apollo 13 Review Board"]
+
+
+def test_state_portals(army_cli, capsys):
+    from govweb.portals import state_portals
+
+    portals = state_portals()
+    assert len(portals) == 50 and portals["TX"] == "texas.gov" and portals["FL"] == "myflorida.com"
+    code, out = run(capsys, "portals", "FL", "Texas")
+    assert out.split() == ["myflorida.com", "texas.gov"]
+    florida = db.get_site(db.connect("w.db"), "myflorida.com")
+    assert (florida["level"], florida["state"], florida["organization"]) == ("state", "FL", "State of Florida")
+    code, out = run(capsys, "portals")
+    assert "myflorida.com" in out and "not crawled" in out
+
+
+def test_cli_count_pages_and_the_pages_column(army_cli, capsys):
+    pdf = b"%PDF-1.4\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 164 >>\nendobj\n%%EOF"
+    army_cli.pages["https://army.mil/files/FM-21-76.pdf"] = (200, "application/pdf", pdf)
+    run(capsys, "crawl", "army.mil", "--no-sitemaps")
+    code, out = run(capsys, "count-pages", "--keywords", "survival", "--verbose")
+    assert "Counted 1 of 1." in out
+    run(capsys, "export", "--out", "p.csv", "--keywords", "survival")
+    with open("p.csv", newline="") as fh:
+        row = next(csv.DictReader(fh))
+    assert (row["pages"], row["country"], row["found_on"]) == ("164", "United States", "https://army.mil/training/field-survival")
+    code, out = run(capsys, "count-pages", "--keywords", "survival")
+    assert "No PDFs to count." in out  # counted once
+
+
+def test_sheet_layout_links_titles_and_keeps_other_cells_plain(army_cli, capsys):
+    from govweb.export import SHEET_COLUMNS
+
+    army_cli.pages["https://army.mil/training/field-survival"] = (200, "text/html", html(
+        "Survival", ("/files/FM-21-76.pdf", '=cmd|"Survival" Field Manual'),
+    ))  # fmt: skip
+    run(capsys, "crawl", "army.mil", "--no-sitemaps")
+    code, out = run(capsys, "export", "--out", "s.csv", "--keywords", "survival", "--sheet", "Survival search")
+    with open("s.csv", newline="") as fh:
+        rows = list(csv.reader(fh))
+    assert rows[0] == SHEET_COLUMNS
+    search, title, year, authority, country, state, website, found_on, on_amazon, *_ = rows[1]
+    assert search == "Survival search" and country == "United States" and website == "army.mil" and state == ""
+    assert title == '=HYPERLINK("https://army.mil/files/FM-21-76.pdf", "=cmd|""Survival"" Field Manual")'
+    assert on_amazon == "not checked"
+    assert rows[1][SHEET_COLUMNS.index("Copyright")].startswith("Likely public domain: US federal government work")
+
+
+def test_sheet_upload_with_formulas_uses_user_entered():
+    from govweb.sheets import upload
+    from tests.test_govweb_results import FakeSession
+
+    session = FakeSession([])
+    upload(session, "SHEET", {"Search - x": [["Title (link)"], ['=HYPERLINK("u", "t")']]}, formulas=True)
+    puts = [c for c in session.calls if c[0] == "PUT"]
+    assert puts and puts[0][2]["params"]["valueInputOption"] == "USER_ENTERED"
+
+
+def test_excluded_sites_and_paths_are_never_searched_or_listed(army_cli, capsys):
+    from govweb.exclude import is_excluded
+
+    assert is_excluded("https://www.ecfr.gov/current/title-8")
+    assert is_excluded("https://www.govinfo.gov/content/pkg/CFR-2024-title8-vol1/pdf/CFR-2024-title8-vol1.pdf")
+    assert not is_excluded("https://www.govinfo.gov/app/collection/budget")
+    assert not is_excluded("https://www.uscis.gov/guide.pdf")
+    code, out = run(capsys, "crawl", "ecfr.gov", "--no-sitemaps")
+    assert "ecfr.gov is on the list of sites never searched" in out
+    assert not [u for u in army_cli.requested if "ecfr.gov" in u]
+    army_cli.pages["https://govinfo.gov/"] = (200, "text/html", html(
+        "GovInfo",
+        ("/content/pkg/CFR-2024-title8-vol1/pdf/CFR-2024-title8-vol1.pdf", "8 CFR Aliens and Nationality"),
+        ("/content/pkg/BUDGET-2025/pdf/budget-guide.pdf", "Guide to the Budget of the United States"),
+    ))  # fmt: skip
+    run(capsys, "crawl", "govinfo.gov", "--no-sitemaps")
+    run(capsys, "export", "--out", "g.csv", "--sites", "govinfo.gov", "--all-documents")
+    with open("g.csv", newline="") as fh:
+        assert [r["title"] for r in csv.DictReader(fh)] == ["Guide to the Budget of the United States"]
+
+
+def test_the_authority_is_the_agency_not_the_office_running_its_website():
+    from govweb.export import publisher_of
+
+    def row(org, sub):
+        return {"organization": org, "suborganization": sub}
+
+    assert publisher_of(row("Department of State", "Bureau of Global Public Affairs")) == "Department of State"
+    assert publisher_of(row("Department of Homeland Security", "Management Directorate")) == (
+        "Department of Homeland Security"
+    )
+    assert publisher_of(row("Department of Justice", "Office of the Chief Information Officer")) == "Department of Justice"
+    assert publisher_of(row("Department of Homeland Security", "Citizenship and Immigration Services")) == (
+        "Citizenship and Immigration Services"
+    )
+
+
+def test_state_search_keeps_a_states_best_books(army_cli, capsys):
+    conn = db.connect("w.db")
+    for host in ("aaa.ca.gov", "refugees.ca.gov", "zzz.ca.gov"):
+        db.add_site(conn, host, organization=f"{host} agency", level="state", state="CA")
+        army_cli.pages[f"https://{host}/"] = (200, "text/html", html(host))
+    army_cli.pages["https://refugees.ca.gov/"] = (200, "text/html", html(
+        "Refugee Programs", ("/files/survival-handbook.pdf", "California Survival Handbook for Newcomers"),
+        ("/files/survival-flyer.pdf", "Survival Class Flyer"), ("/files/bees.pdf", "Beekeeping in California Guide"),
+    ))  # fmt: skip
+    # Sites named like the subject go first (after the portal), crawled before or not.
+    code, out = run(capsys, "crawl", "--level", "state", "--state", "CA", "--limit", "2", "--no-sitemaps",
+                    "--prefer-names", "refugee", "--skip-recent-days", "0")  # fmt: skip
+    assert "refugees.ca.gov" in out and "aaa.ca.gov" not in out
+    # Sub-sites count by their own names: an app under a human-services domain isn't preferred.
+    from govweb.cli import _by_promise
+
+    sites = [{"domain": "app3.azdhs.gov", "parent_domain": "azdhs.gov", "crawled_at": None},
+             {"domain": "library.azdhs.gov", "parent_domain": "azdhs.gov", "crawled_at": None}]  # fmt: skip
+    assert [s["domain"] for s in _by_promise(sites, [], ["dhs", "librar", "-app"])][0] == "library.azdhs.gov"
+    code, out = run(capsys, "export", "--out", "CA.csv", "--state", "CA", "--topics-only", "--config", "govbooks.toml",
+                    "--sort", "pages", "--top", "2")  # fmt: skip
+    assert "Wrote 2 row(s)" in out
+    with open("CA.csv", newline="") as fh:
+        rows = list(csv.DictReader(fh))
+    assert {r["state"] for r in rows} == {"CA"}
+    assert "Survival Class Flyer" not in {r["title"] for r in rows}  # paperwork
+    conn.execute("UPDATE documents SET pages = 3 WHERE url LIKE '%survival-handbook%'")
+    conn.commit()
+    code, out = run(capsys, "export", "--out", "CA.csv", "--state", "CA", "--topics-only", "--config", "govbooks.toml",
+                    "--min-pages", "10")  # fmt: skip
+    assert "Wrote 0 row(s)" in out  # the 3-page handbook and the uncounted guide are both left out
+    conn.execute("UPDATE documents SET pages = 40 WHERE url LIKE '%bees%'")
+    conn.commit()
+    code, out = run(capsys, "export", "--out", "CA.csv", "--state", "CA", "--topics-only", "--config", "govbooks.toml",
+                    "--min-pages", "10")  # fmt: skip
+    assert "Wrote 1 row(s)" in out
+    code, out = run(capsys, "export", "--out", "CA.csv", "--state", "CA", "--topics-only", "--config", "govbooks.toml",
+                    "--sort", "pages", "--top", "2")  # fmt: skip
+    code, out = run(capsys, "export", "--out", "TX.csv", "--state", "TX", "--topics-only", "--config", "govbooks.toml")
+    assert "Wrote 0 row(s)" in out
+    code, out = run(capsys, "merge", "CA.csv", "TX.csv", "--out", "states.md", "--heading", "By state")
+    assert code == 0 and "Wrote 2 row(s) from 2 file(s)" in out
+    text = open("states.md").read()
+    assert "| Title | Year | Pages | Cover | State |" in text and "| CA |" in text
+    code, out = run(capsys, "merge", "CA.csv", "TX.csv", "--out", "states.csv")
+    with open("states.csv", newline="") as fh:
+        assert len(list(csv.reader(fh))) == 3  # one header
+
+
+def test_states_whose_publications_cant_be_reused_are_skipped(army_cli, capsys):
+    from govweb.crawl import FoundDocument, SiteResult
+    from govweb.exclude import excluded_states, is_excluded_state_site
+
+    assert {"TX", "MD", "GA"} <= excluded_states() and "CA" not in excluded_states()
+    assert is_excluded_state_site("state", "tx") and not is_excluded_state_site("city", "TX")
+    conn = db.connect("w.db")
+    for host, state in (("tsl.texas.gov", "TX"), ("library.ca.gov", "CA")):
+        db.add_site(conn, host, organization=host, level="state", state=state)
+        army_cli.pages[f"https://{host}/"] = (200, "text/html", html(host))
+        result = SiteResult(host)
+        result.documents[f"https://{host}/survival.pdf"] = FoundDocument(
+            f"https://{host}/survival.pdf", "State Survival Handbook", "pdf", f"https://{host}/", "link"
+        )
+        db.store_result(conn, result)
+    code, out = run(capsys, "crawl", "--level", "state", "--state", "TX", "--no-sitemaps")
+    assert "TX's own sites are never searched" in out and "https://tsl.texas.gov/" not in army_cli.requested
+    code, out = run(capsys, "export", "--out", "all.csv")
+    with open("all.csv", newline="") as fh:
+        sites = {r["website"] for r in csv.DictReader(fh)}
+    assert "library.ca.gov" in sites and "tsl.texas.gov" not in sites
+
+
+def test_covers_are_told_from_the_first_page():
+    pytest.importorskip("pypdfium2")
+    from govweb.covers import COVER, NO_COVER, SCANNED, TITLE_PAGE, cover_of
+    from tests.pdfmaker import make_pdf, text_page
+
+    photo = bytes([200, 40, 40, 30, 120, 200, 40, 160, 60, 220, 200, 40])
+    grey = bytes([90] * 12)
+    assert cover_of(make_pdf(["q 612 0 0 450 0 200 cm /Im1 Do Q\nBT /F1 20 Tf 60 100 Td (Final Report) Tj ET"],
+                             image=photo)) == COVER  # a photo, like a State Department evaluation
+    assert cover_of(make_pdf(["0.1 0.3 0.7 rg 0 450 612 342 re f\nBT /F1 36 Tf 60 600 Td (Report) Tj ET"])) == COVER
+    assert cover_of(make_pdf([text_page(50)])) == NO_COVER  # a contents page, like the Attorneys' Bulletin
+    assert cover_of(make_pdf(["0.85 g 40 100 150 650 re f\n0 g\n" + text_page(45)])) == NO_COVER
+    assert cover_of(make_pdf(["BT /F1 36 Tf 80 500 Td (Refugee Health Manual) Tj ET"])) == TITLE_PAGE
+    assert cover_of(make_pdf(["q 612 0 0 792 0 0 cm /Im1 Do Q", text_page(40)], image=grey)) == COVER
+    assert cover_of(make_pdf(["q 612 0 0 792 0 0 cm /Im1 Do Q"] * 2, image=grey)) == SCANNED
+    assert cover_of(b"not a pdf") is None
+
+
+def test_count_pages_fills_the_cover_page_column(army_cli, capsys):
+    pytest.importorskip("pypdfium2")
+    from govweb.export import SHEET_COLUMNS
+    from tests.pdfmaker import make_pdf, text_page
+
+    pdf = make_pdf(["0.1 0.3 0.7 rg 0 0 612 792 re f", text_page(40)])
+    army_cli.pages["https://army.mil/files/FM-21-76.pdf"] = (200, "application/pdf", pdf)
+    run(capsys, "crawl", "army.mil", "--no-sitemaps")
+    code, out = run(capsys, "count-pages", "--keywords", "survival", "--verbose")
+    assert "Counted 1 of 1." in out and "Yes" in out
+    run(capsys, "export", "--out", "s.csv", "--keywords", "survival", "--sheet", "Survival")
+    with open("s.csv", newline="") as fh:
+        rows = list(csv.reader(fh))
+    assert (rows[1][SHEET_COLUMNS.index("Pages")], rows[1][SHEET_COLUMNS.index("Cover page")]) == ("2", "Yes")
+
+
+def test_publication_years_and_newest_first(army_cli, capsys):
+    from govweb.classify import url_year, year_in
+    from govweb.export import year_order
+
+    assert year_in("FFY 2026 Final Refugee Resettlement Program State Plan") == 2026
+    assert year_in("WV FY26 Refugee State Plan") == 2026
+    assert year_in("July 2017 Volume 65 Number 3 ... since 1950") == 2017
+    assert year_in("Form 5000 instructions") is None and year_in("Chapter 12") is None
+    assert url_year("https://www.state.gov/wp-content/uploads/2023/08/PRM_EVAL_FINAL_REPORT_public.pdf") == 2023
+    assert url_year("https://www.dhs.gov/sites/default/files/2024-07/privacy-pia.pdf") == 2024
+    assert url_year("https://x.gov/files/report.pdf") is None
+    rows = [{"title": "Old", "topics": "t", "year": 1998, "pages": 200, "book_score": 2},
+            {"title": "Paperwork", "topics": "t", "year": 2026, "pages": 3, "book_score": -2},
+            {"title": "Unknown", "topics": "t", "year": "", "pages": 80, "book_score": 2},
+            {"title": "New", "topics": "t", "year": 2025, "pages": 40, "book_score": 2}]  # fmt: skip
+    assert [r["title"] for r in sorted(rows, key=year_order)] == ["New", "Old", "Unknown", "Paperwork"]
+    # merge --sort-by puts the latest first across states
+    import csv as _csv
+
+    for name, years in (("a.csv", ["2001", ""]), ("b.csv", ["2020"])):
+        with open(name, "w", newline="") as fh:
+            _csv.writer(fh).writerows([["title", "year"], *[[f"{name}{y}", y] for y in years]])
+    code, out = run(capsys, "merge", "a.csv", "b.csv", "--out", "m.csv", "--sort-by", "year")
+    with open("m.csv", newline="") as fh:
+        assert [r[1] for r in _csv.reader(fh)] == ["year", "2020", "2001", ""]
+
+
+def test_count_pages_finds_the_year_on_the_first_page(army_cli, capsys):
+    pytest.importorskip("pypdfium2")
+    from tests.pdfmaker import make_pdf, text_page
+
+    pdf = make_pdf(["BT /F1 12 Tf 50 700 Td (July 2017 Volume 65 Number 3) Tj ET\n" + text_page(40)])
+    army_cli.pages["https://army.mil/files/FM-21-76.pdf"] = (200, "application/pdf", pdf)
+    run(capsys, "crawl", "army.mil", "--no-sitemaps")
+    run(capsys, "count-pages", "--keywords", "survival")
+    run(capsys, "export", "--out", "y.csv", "--keywords", "survival")
+    with open("y.csv", newline="") as fh:
+        assert next(csv.DictReader(fh))["year"] == "2017"

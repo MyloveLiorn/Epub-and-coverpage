@@ -89,10 +89,29 @@ def title_from_url(url: str) -> str:
     return " ".join(re.split(r"[\s_\-+.]+", name)).strip()
 
 
+_FILE_SIZE = re.compile(
+    r"\s*(?:[\[(]\s*(?:(?:pdf|docx?|epub)\b[\s,|:-]*)?(?:[\d.,]+\s*(?:kb|mb|gb|bytes?)\b)?\s*[\])]?)\s*$", re.IGNORECASE
+)
+
+
+_NEW_WINDOW = re.compile(r"[(\[]?\s*\bopens? in (?:a )?new (?:window|tab)\b\s*[)\]]?", re.IGNORECASE)
+_LEAD_IN = re.compile(r"^\s*(?:learn more about|click here (?:to|for)|download(?: the)?|read(?: the)?|view(?: the)?)\s+",
+                      re.IGNORECASE)  # fmt: skip
+_OPEN_BRACKET_END = re.compile(r"\s*[(\[][^()\[\]]*$")  # "Stop Immigration Scams! (Archive" (cut short)
+
+
 def clean_title(text: str) -> str:
     """ "K9H2F Handbook 2026 K9H2F Handbook 2026" -> "K9H2F Handbook 2026", "Don&#39;t" -> "Don't",
-    and no trailing dot or separator."""
+    and no trailing dot, separator or file size ("[PDF, 1 MB]", or a "[" left of one)."""
     text = " ".join(html.unescape(html.unescape(text)).split())
+    text = _FILE_SIZE.sub("", text)
+    text = _NEW_WINDOW.sub(" ", text)
+    text = _LEAD_IN.sub("", text) if len(_LEAD_IN.sub("", text).split()) >= 2 else text
+    text = _OPEN_BRACKET_END.sub("", text)
+    first, bar, _ = text.partition(" | ")  # "Title | Office of the Attorney General"
+    if bar and len(first.split()) >= 3:
+        text = first
+    text = " ".join(text.split())
     words = text.split()
     half = len(words) // 2
     if half and len(words) % 2 == 0 and words[:half] == words[half:]:
@@ -100,8 +119,12 @@ def clean_title(text: str) -> str:
     return text.strip(" -|:._")
 
 
+# Image descriptions used as link text: "Icon of an upward growth chart ...".
+_IMAGE_TEXT = re.compile(r"^\s*(?:icon|image|photo|picture|logo|graphic|illustration|thumbnail)\b", re.IGNORECASE)
+
+
 def is_generic_title(title: str) -> bool:
-    return " ".join(_WORDS.findall(title.lower())) in GENERIC_LINK_TEXT
+    return " ".join(_WORDS.findall(title.lower())) in GENERIC_LINK_TEXT or bool(_IMAGE_TEXT.match(title))
 
 
 def meaningful_file_name(url: str) -> bool:
@@ -140,7 +163,42 @@ PAPERWORK_WORDS = {
     "permit": -2, "notice": -2, "flyer": -2, "memo": -2, "memorandum": -2, "resolution": -2, "ordinance": -2,
     "contract": -2, "bid": -2, "schedule": -2, "calendar": -2, "press": -1, "release": -1, "newsletter": -1,
     "checklist": -1, "packet": -1, "budget": -1, "audit": -1, "testimony": -1, "letter": -1,
+    # Letters to Congress, court filings, and slides and handouts from meetings, which agency
+    # sites (USCIS, DHS, Justice) publish by the hundred.
+    "representative": -3, "senator": -3, "congressman": -3, "congresswoman": -3, "dkt": -3, "ecf": -3,
+    "docket": -2, "exhibit": -2, "filing": -2, "motion": -2, "complaint": -2, "affidavit": -2, "stipulation": -2,
+    "presentation": -2, "powerpoint": -2, "slide": -2, "webinar": -2, "infographic": -2, "poster": -2,
+    "factsheet": -2, "engagement": -2, "talking": -1, "listening": -1, "sheet": -2, "transcript": -1,
+    # Privacy impact assessments, grant notices and lists, meeting invitations and speeches.
+    "pia": -3, "privacy": -1, "nofo": -3, "foa": -3, "recipient": -2, "roster": -2, "invitation": -2,
+    "remarks": -2, "stakeholder": -1, "template": -2, "response": -1, "workload": -1,
+    # Court briefs, bidder certifications, questionnaires and news, found on state sites.
+    "amicus": -3, "lawsuit": -2, "plaintiff": -2, "sues": -2, "bidder": -3, "questionnaire": -2,
+    "certification": -1, "verification": -1, "declaration": -1, "today": -2,
 }  # fmt: skip
+
+# News releases: "Attorney General Weiser joins amicus brief ...", "Governor signs ...".
+_NEWS = re.compile(
+    r"\b(?:attorney general|governor|secretary|commissioner|comptroller|treasurer|mayor|director|ag)\b[^.:]{0,60}?"
+    r"\b(?:joins|files|urges|sues|announces|applauds|defends|backs|secures|praises|signs|opposes|calls|took action|"
+    r"takes action|leads|wins)\b",
+    re.IGNORECASE,
+)
+# Numbered forms ("SOC 814 (12/20) Statement of Facts") and single sections of policy manuals
+# ("2402.15.10 Verification of U.S. Citizenship").
+_FORM_NUMBER = re.compile(r"^\s*[A-Z]{1,6}[- ]?\d{1,5}[A-Z]?\s*\(\d{1,2}/\d{2,4}\)")
+_MANUAL_SECTION = re.compile(r"^\s*\d{3,5}(?:\.\d{1,3}){1,3}\b")
+
+# A court case's name: "Ahmed v. DHS", "Doe vs Smith"; but not "Title V Grants" or "Part V".
+_CAPTION = re.compile(r"\b([a-z][\w.'&-]*)[\s_-]+vs?\.?[\s_-]+[a-z]", re.IGNORECASE)
+_ROMAN_V_AFTER = {"title", "part", "chapter", "section", "volume", "vol", "phase", "appendix", "annex", "book",
+                  "article", "form", "schedule", "level", "tier", "stage", "module", "unit", "grade", "class", "type",
+                  "category", "division", "subpart", "subchapter", "table", "figure", "exhibit", "attachment",
+                  "enclosure", "tab", "step", "lesson", "session", "year", "no", "number", "item"}  # fmt: skip
+
+
+def is_court_case(text: str) -> bool:
+    return any(m.group(1).lower().rstrip(".") not in _ROMAN_V_AFTER for m in _CAPTION.finditer(text))
 
 
 _TITLE_STOPWORDS = {"the", "and", "for", "with", "from", "into", "pdf", "doc", "file", "download"}
@@ -157,4 +215,100 @@ def book_score(title: str, url: str) -> int:
     title_words = [w for w in _words(title or title_from_url(url)) if len(w) >= 3 and w not in _TITLE_STOPWORDS]
     if len(title_words) >= 3:
         score += 1
+    if is_court_case(title) or is_court_case(title_from_url(url)):
+        score -= 3
+    if _NEWS.search(title) or _FORM_NUMBER.search(title):
+        score -= 3
+    if _MANUAL_SECTION.search(title):
+        score -= 2
     return max(-5, min(5, score))
+
+
+# One book in many languages: "Asylum Guide - Spanish", "Asylum Guide (Haitian Creole)",
+# "asylum-guide-es.pdf". Only a language at the start or end of the title, or in brackets,
+# marks a translation; "Chinese Immigration to America" is its own book.
+LANGUAGE_NAMES = [
+    "english", "spanish", "espanol", "español", "french", "francais", "français", "haitian creole", "haitian",
+    "creole", "kreyol", "kreyòl", "arabic", "chinese", "simplified chinese", "traditional chinese", "mandarin",
+    "cantonese", "russian", "korean", "vietnamese", "tagalog", "filipino", "dari", "pashto", "farsi", "persian",
+    "urdu", "hindi", "bengali", "punjabi", "burmese", "armenian", "amharic", "nepali", "indonesian", "portuguese",
+    "somali", "swahili", "tigrinya", "ukrainian", "polish", "japanese", "german", "italian", "hmong", "khmer",
+    "lao", "thai", "turkish", "uzbek", "kinyarwanda", "kirundi", "karen", "chuukese", "marshallese", "samoan",
+    "tongan", "ilocano", "greek", "hebrew", "romanian", "albanian", "bosnian", "serbian", "croatian", "oromo",
+    "dinka", "nuer", "pular", "wolof", "fulani", "mam", "kiche", "k'iche'", "quiche", "lingala", "rohingya",
+    "kurdish", "uyghur", "tamil", "gujarati", "georgian", "mongolian", "sango",
+]  # fmt: skip
+_LANG = "|".join(re.escape(n).replace(r"\ ", r"\s+") for n in sorted(LANGUAGE_NAMES, key=len, reverse=True))
+_QUALIFIER = r"(?:\s+(?:simplified|traditional|version|translation|language|edition))*"
+_LANG_END = re.compile(
+    rf"(?:[\s\-–—:|,/]*[(\[]?\s*(?:in\s+|en\s+)?(?:{_LANG}){_QUALIFIER}\s*[)\]]?)+\s*$", re.IGNORECASE
+)
+_LANG_START = re.compile(rf"^\s*[(\[]?\s*(?:{_LANG}){_QUALIFIER}\s*[)\]]?\s*[-–—:|]\s*", re.IGNORECASE)
+_LANG_BRACKETS = re.compile(rf"[(\[]\s*(?:{_LANG}){_QUALIFIER}\s*[)\]]", re.IGNORECASE)
+# Language codes at the end of a file name ("guide-es", "guide_SP", "guide-RUS"), and what often
+# follows them ("guide-french_0", "guide 508 PSH", "guide-final").
+_LANG_CODE_END = re.compile(
+    r"[\s_\-(\[]+(?:es|sp|spa|esp|fr|fra|fre|zh|chi|ko|kor|vi|vie|ru|rus|ht|hat|pt|por|tl|tag|ar|ara|en|eng|psh|pus|dar|"
+    r"prs|far|fas|urd|hin|ben|som|swa|tir|amh|ukr|pol|nep|bur|mya|arm|hye)[)\]]?\s*$",
+    re.IGNORECASE,
+)
+_FILE_NAME_TAIL = re.compile(r"(?:[\s_-]+(?:final|tnc|hc|508c?|v\d+|rev\d*|web))+\s*$", re.IGNORECASE)
+_NUMBER_TAIL = re.compile(r"[\s_-]+\d{1,2}\s*$")  # "guide-french_0"; only dropped after a language
+
+
+def _language_tail(name: str) -> tuple[str, list[str]]:
+    """A file name without the language at its end, and that language (none: the name as it is)."""
+    base = _FILE_NAME_TAIL.sub("", name)
+    for candidate in (base, _NUMBER_TAIL.sub("", base)):
+        found: list[str] = []
+        stripped = _LANG_END.sub(lambda m, found=found: found.append(m.group(0)) or " ", candidate)
+        stripped = _LANG_CODE_END.sub(lambda m, found=found: found.append(m.group(0)) or "", stripped)
+        if found and stripped.strip(" -_"):
+            return stripped, found
+    return name, []
+
+
+def split_language(title: str, file_name: bool = False) -> tuple[str, str]:
+    """ "Asylum Guide - Spanish" -> ("Asylum Guide", "spanish"); ("Asylum Guide", "") without one.
+    With ``file_name``, a language code at the end counts too ("asylum guide es")."""
+    language: list[str] = []
+    for pattern in (_LANG_BRACKETS, _LANG_START, _LANG_END):
+        found: list[str] = []
+        stripped = pattern.sub(lambda m, found=found: found.append(m.group(0)) or " ", title)
+        if stripped.strip(" -|:._,"):  # a title that is only a language stays as it is
+            title, language = stripped, language + found
+    if file_name:
+        for _ in range(3):  # "guide 508 PSH", "guide french 0": the tail, then the language
+            title, found = _language_tail(title)
+            if not found:
+                break
+            language += found
+    base = " ".join(title.split()).strip(" -|:._,")
+    return base, " ".join(" ".join(part.strip(" -|:._,()[]") for part in language).lower().split())
+
+
+def title_key(title: str) -> str:
+    """The title's words without the language it is in, for telling translations of a book apart."""
+    return " ".join(_words(split_language(title)[0]))
+
+
+# Years: "2017", "FY26" / "FFY 2026"; a year after next is a number, not a date.
+_YEAR_IN_TEXT = re.compile(r"(?<![\d.])(1[6-9]\d\d|20\d\d)(?![\d.])")
+_SHORT_FY_IN_TEXT = re.compile(r"\bf?fy\s?'?(\d{2})\b", re.IGNORECASE)
+_URL_DATE = re.compile(r"/((?:19|20)\d\d)(?:/|-)(?:0?[1-9]|1[0-2])(?=/|-|$)")
+
+
+def year_in(text: str, latest: int | None = None) -> int | None:
+    """The latest year a text names ("FFY 2026 State Plan" -> 2026, "WV FY26 Plan" -> 2026)."""
+    from datetime import date
+
+    latest = latest or date.today().year + 1
+    years = [int(y) for y in _YEAR_IN_TEXT.findall(text)] + [2000 + int(y) for y in _SHORT_FY_IN_TEXT.findall(text)]
+    years = [y for y in years if y <= latest]
+    return max(years, default=None)
+
+
+def url_year(url: str) -> int | None:
+    """The year a file was put on a site, when its address says: ".../uploads/2023/08/x.pdf" -> 2023."""
+    match = _URL_DATE.search(urlsplit(url).path)
+    return int(match.group(1)) if match else None

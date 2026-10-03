@@ -1,0 +1,10 @@
+# Changing this file and pushing the change starts the "Track books" workflow
+# (.github/workflows/track-books.yml), which also runs every Wednesday once it is on the default
+# branch, and from the Actions tab's "Run workflow" button. Last request:
+2026-09-28 first check: the books of the Search and States tabs (10+ pages)
+2026-09-28 re-check after 18-page minimum: both search tabs refreshed, track 18+ page books only
+2026-10-03 first check of automation/watchlist.csv: 19 NOAA books (the uploaded NOAA book list, minus the 9 stopped ones)
+2026-10-03 only the chosen books: automation/watchlist.csv and books added by hand; search results no longer tracked
+2026-10-03 first check of the copyright.gov (50) and uspto.gov trademark (211) books added to the watchlist
+2026-10-03 re-check: one more Trademark Rules and Statutes (37 CFR) file dropped from the watchlist and the tab
+2026-10-03 first check of 8 more trademark books (June 2026 TBMP chapters, archived 2025 and 2018 editions)
