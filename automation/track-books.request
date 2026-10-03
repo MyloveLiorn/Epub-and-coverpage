@@ -6,3 +6,4 @@
 2026-10-03 first check of automation/watchlist.csv: 19 NOAA books (the uploaded NOAA book list, minus the 9 stopped ones)
 2026-10-03 only the chosen books: automation/watchlist.csv and books added by hand; search results no longer tracked
 2026-10-03 first check of the copyright.gov (50) and uspto.gov trademark (211) books added to the watchlist
+2026-10-03 re-check: one more Trademark Rules and Statutes (37 CFR) file dropped from the watchlist and the tab

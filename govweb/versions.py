@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from govweb.classify import best_title, document_type, title_from_url
+from govweb.exclude import is_excluded
 from govweb.export import hyperlink, safe_cell
 from govweb.parse import parse_html
 from govweb.pdfpages import count_pages
@@ -203,10 +204,12 @@ def from_watchlist(rows: list[list[str]]) -> list[Tracked]:
 def merge(tracked: list[Tracked], chosen: list[Tracked], today: str) -> list[Tracked]:
     """The books to track (one row per book): those added to the tab by hand, plus the ``chosen``
     ones not tracked yet. A row an earlier search added is dropped unless the user wrote a note on
-    it or chose the book: nobody picked it."""
+    it or chose the book: nobody picked it. A book on the never-listed sites (the CFR) is dropped too."""
     picked = {book.key for book in chosen}
     merged: list[Tracked] = []
     known: set[str] = set()
+    tracked = [b for b in tracked if not is_excluded(b.link or b.found_on)]
+    chosen = [b for b in chosen if not is_excluded(b.link or b.found_on)]
     for book in tracked:
         if book.key in known:
             continue

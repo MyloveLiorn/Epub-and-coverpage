@@ -10,8 +10,8 @@ govinfo.gov/content/pkg/cfr-
 govinfo.gov/link/cfr
 copyright.gov/title37
 # USPTO's "Trademark Rules and Statutes" compilations: 37 CFR Part 2 with the Lanham Act.
-uspto.gov/sites/default/files/documents/trademark-rules-and-statutes
-uspto.gov/sites/default/files/documents/trademark_rules_and_statutes
+uspto.gov/sites/default/files/documents/trademark-rules-and-stat
+uspto.gov/sites/default/files/documents/trademark_rules_and_stat
 uspto.gov/sites/default/files/documents/trademark_rules_statutes
 uspto.gov/sites/default/files/documents/trademark-rules-statutes
 uspto.gov/sites/default/files/trademark-statutes

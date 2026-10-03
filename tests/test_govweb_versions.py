@@ -177,6 +177,9 @@ def test_watchlist_books_are_tracked_once_whatever_their_title():
     merged = versions.merge([], watch, "2026-10-03")
     assert [b.tracked_since for b in merged] == ["2026-10-03"]
     assert len(versions.merge(merged, watch, "2026-10-10")) == 1
+    # The CFR is never listed, even when it got into the watchlist or the tab.
+    cfr = versions.Tracked("https://www.ecfr.gov/title-37.pdf", "Title 37", added_by=versions.YOU)
+    assert versions.merge([cfr], watchlist(("Title 37 again", "https://ecfr.gov/t37.pdf", "")), "2026-10-10") == []
 
 
 def test_books_nobody_chose_are_dropped_and_chosen_ones_stay():
