@@ -40,17 +40,17 @@ def search_tab(*books):
     return rows
 
 
+def watchlist(*books):
+    return versions.from_watchlist([["Title", "Link", "Found on (page)"], *map(list, books)])
+
+
 def test_books_are_tracked_checked_and_new_versions_found():
     today = "2026-10-01"
-    found = versions.from_search_tab(search_tab(
-        ("https://x.gov/plan-2026.pdf", "FFY 2026 Refugee State Plan", "86", "https://x.gov/plans"),
-        ("https://x.gov/flyer.pdf", "Refugee Flyer", "2", "https://x.gov/plans"),  # too short to track
-        ("https://x.gov/manual.pdf", "Refugee Health Manual", "85", "https://x.gov/sitemap.xml"),
-    ))  # fmt: skip
+    found = watchlist(
+        ("FFY 2026 Refugee State Plan", "https://x.gov/plan-2026.pdf", "https://x.gov/plans"),
+        ("Refugee Health Manual", "https://x.gov/manual.pdf", "https://x.gov/sitemap.xml"),
+    )  # fmt: skip
     assert [b.title for b in found] == ["FFY 2026 Refugee State Plan", "Refugee Health Manual"]
-    texas = search_tab(("https://tx.gov/guide.pdf", "Texas Immigration Guide", "40", ""))
-    texas[1][SHEET_COLUMNS.index("State")] = "TX"  # its publications can't be reused
-    assert versions.from_search_tab(texas) == []
     # A book added by hand: a title and the page it is published on.
     row = dict.fromkeys(versions.COLUMNS, "")
     row.update({"Title (link)": "Welcome Guide", "Found on (page)": "https://x.gov/welcome", "Notes": "mine"})
@@ -130,28 +130,41 @@ class SheetSession:
         return FakeResponse()
 
 
-def test_track_books_command_keeps_the_tab(tmp_path, monkeypatch, capsys):
+def test_track_books_command_tracks_only_the_chosen_books(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    sheet = SheetSession({"Search - immigration": search_tab(
-        ("https://x.gov/plan-2026.pdf", "FFY 2026 Refugee State Plan", "86", "https://x.gov/plans"))})
+    unchosen = versions.Tracked("https://x.gov/old.pdf", "Old Refugee Guide", added_by=versions.SEARCH)
+    noted = versions.Tracked("https://x.gov/noted.pdf", "Noted Guide", added_by=versions.SEARCH, notes="mine")
+    mine = versions.Tracked("https://x.gov/mine.pdf", "My Guide", added_by=versions.YOU)
+    sheet = SheetSession({
+        "Search - immigration": search_tab(
+            ("https://x.gov/plan-2026.pdf", "FFY 2026 Refugee State Plan", "86", "https://x.gov/plans")),
+        versions.TAB: [versions.COLUMNS, *(b.row() for b in (unchosen, noted, mine))],
+    })  # fmt: skip
+    (tmp_path / "watch.csv").write_text(
+        "Title,Link,Found on (page)\nTide Glossary (2000),https://x.gov/tides.pdf,https://x.gov/tides\n")
     monkeypatch.setattr("govweb.sheets.authorized_session", lambda credentials: sheet)
     monkeypatch.setenv("GOOGLE_SERVICE_ACCOUNT_JSON", "{}")
-    fetcher = FakeFetcher({"https://x.gov/plan-2026.pdf": (200, "application/pdf", b"%PDF-1.4 old"),
-                           "https://x.gov/plans": (200, "text/html", html("Plans"))})  # fmt: skip
+    site = {f"https://x.gov/{name}.pdf": (200, "application/pdf", b"%PDF-1.4 " + name.encode())
+            for name in ("tides", "noted", "mine", "old")}  # fmt: skip
+    site["https://x.gov/tides"] = (200, "text/html", html("Tides"))
+    fetcher = FakeFetcher(site)
     monkeypatch.setattr(cli, "make_fetcher", lambda args: fetcher)
-    assert cli.main(["--db", "w.db", "track-books", "--sheet-id", "S", "--summary", "v.md"]) == 0
+    argv = ["--db", "w.db", "track-books", "--sheet-id", "S", "--watchlist", "watch.csv"]
+    assert cli.main([*argv, "--summary", "v.md"]) == 0
     tab = sheet.tabs[versions.TAB]
-    assert tab[0] == versions.COLUMNS and len(tab) == 2
-    assert tab[1][0].startswith('=HYPERLINK("https://x.gov/plan-2026.pdf"')
-    assert tab[1][versions.COLUMNS.index("Status")] == versions.TRACKING
-    assert "0 change(s)" in (tmp_path / "v.md").read_text()
+    titles = [versions.parse_hyperlink(row[0])[1] for row in tab[1:]]
+    # The search tab's book and the old search row nobody chose are not tracked; a noted row counts as chosen.
+    assert titles == ["Noted Guide", "My Guide", "Tide Glossary (2000)"]
+    assert {row[versions.COLUMNS.index("Added by")] for row in tab[1:]} == {versions.YOU}
+    assert {row[versions.COLUMNS.index("Status")] for row in tab[1:]} == {versions.TRACKING}
+    assert "https://x.gov/old.pdf" not in fetcher.requested and "0 change(s)" in (tmp_path / "v.md").read_text()
     # The next run reads the tab back and keeps one row per book.
-    assert cli.main(["--db", "w.db", "track-books", "--sheet-id", "S"]) == 0
-    assert len(sheet.tabs[versions.TAB]) == 2
-    assert sheet.tabs[versions.TAB][1][versions.COLUMNS.index("Status")] == versions.NO_CHANGE
+    assert cli.main(argv) == 0
+    assert len(sheet.tabs[versions.TAB]) == 4
+    assert {row[versions.COLUMNS.index("Status")] for row in sheet.tabs[versions.TAB][1:]} == {versions.NO_CHANGE}
 
 
-def test_watchlist_books_are_tracked_once_whatever_their_title(tmp_path, monkeypatch):
+def test_watchlist_books_are_tracked_once_whatever_their_title():
     header = ["Title", "Link", "Found on (page)", "Authority", "Source website", "Pages", "Notes"]
     watch = versions.from_watchlist([
         header,
@@ -165,32 +178,10 @@ def test_watchlist_books_are_tracked_once_whatever_their_title(tmp_path, monkeyp
     assert [b.tracked_since for b in merged] == ["2026-10-03"]
     assert len(versions.merge(merged, watch, "2026-10-10")) == 1
 
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "watch.csv").write_text(
-        "Title,Link,Found on (page)\nTide and Current Glossary (2000),https://x.gov/tides.pdf,https://x.gov/tides\n")
-    sheet = SheetSession({"Search - immigration": search_tab()})
-    monkeypatch.setattr("govweb.sheets.authorized_session", lambda credentials: sheet)
-    monkeypatch.setenv("GOOGLE_SERVICE_ACCOUNT_JSON", "{}")
-    fetcher = FakeFetcher({"https://x.gov/tides.pdf": (200, "application/pdf", b"%PDF-1.4 tides"),
-                           "https://x.gov/tides": (200, "text/html", html("Tides"))})  # fmt: skip
-    monkeypatch.setattr(cli, "make_fetcher", lambda args: fetcher)
-    for _ in range(2):
-        assert cli.main(["--db", "w.db", "track-books", "--sheet-id", "S", "--watchlist", "watch.csv"]) == 0
-    tab = sheet.tabs[versions.TAB]
-    assert len(tab) == 2 and tab[1][versions.COLUMNS.index("Added by")] == versions.YOU
-    assert tab[1][versions.COLUMNS.index("Status")] == versions.NO_CHANGE
 
-
-def test_paperwork_isnt_tracked_and_search_rows_are_kept_up_to_date():
-    today = "2026-10-01"
-    found = versions.from_search_tab(search_tab(
-        ("https://x.gov/nofo.pdf", "FY18NOFO Refugee and Asylee Grant Recipients", "50", ""),
-        ("https://x.gov/remarks.pdf", "Director's Remarks at the Immigration Conference", "27", ""),
-        ("https://x.gov/manual.pdf", "Refugee Health Manual", "85", ""),
-    ))  # fmt: skip
-    assert [b.title for b in found] == ["Refugee Health Manual"]
-    # Rows tracked before the paperwork filter (no "Added by" column yet): paperwork is dropped
-    # unless the user wrote about it; a better title from the search tab replaces the old one.
+def test_books_nobody_chose_are_dropped_and_chosen_ones_stay():
+    today = "2026-10-03"
+    # Rows tracked before the "Added by" column existed all came from a search.
     old_columns = [c for c in versions.COLUMNS if c != "Added by"]
 
     def old_row(link, title, notes=""):
@@ -198,23 +189,17 @@ def test_paperwork_isnt_tracked_and_search_rows_are_kept_up_to_date():
         row.update({"Title (link)": hyperlink(link, title), "Link": link, "Notes": notes, "Pages": "30"})
         return [row[c] for c in old_columns]
 
-    tracked = versions.from_tracked_tab([old_columns, old_row("https://x.gov/foa.pdf", "FY11 Citizenship FOA"),
-                                         old_row("https://x.gov/grants.pdf", "Grant Recipients", notes="keep"),
-                                         old_row("https://x.gov/manual.pdf", "manual")])  # fmt: skip
+    tracked = versions.from_tracked_tab([old_columns, old_row("https://x.gov/a.pdf", "Refugee Health Manual"),
+                                         old_row("https://x.gov/b.pdf", "Refugee Housing Guide", notes="keep"),
+                                         old_row("https://x.gov/c.pdf", "Refugee Work Guide")])  # fmt: skip
     assert all(b.added_by == versions.SEARCH for b in tracked)
-    merged = versions.merge(tracked, found, today)
-    assert [(b.title, b.pages) for b in merged] == [("Grant Recipients", "30"), ("Refugee Health Manual", "85")]
+    chosen = watchlist(("Refugee Work Guide", "https://x.gov/c.pdf", ""))
+    merged = versions.merge(tracked, chosen, today)
+    # A search row stays when the user wrote a note on it or chose the book, and then counts as theirs.
+    assert [(b.title, b.added_by) for b in merged] == [("Refugee Housing Guide", versions.YOU),
+                                                       ("Refugee Work Guide", versions.YOU)]  # fmt: skip
     # Books added by hand stay whatever their title.
     row = dict.fromkeys(versions.COLUMNS, "")
     row.update({"Title (link)": "Refugee flyer", "Link": "https://x.gov/flyer.pdf"})
     mine = versions.from_tracked_tab([versions.COLUMNS, [row[c] for c in versions.COLUMNS]])
     assert [b.title for b in versions.merge(mine, [], today)] == ["Refugee flyer"]
-
-
-def test_books_under_18_pages_are_not_tracked():
-    assert versions.MIN_PAGES == 18
-    found = versions.from_search_tab(search_tab(
-        ("https://x.gov/a.pdf", "Refugee Resettlement Manual", "17", ""),  # too short
-        ("https://x.gov/b.pdf", "Refugee Resettlement Handbook", "18", ""),
-    ))
-    assert [b.title for b in found] == ["Refugee Resettlement Handbook"]

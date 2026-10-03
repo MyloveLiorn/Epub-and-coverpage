@@ -686,17 +686,18 @@ def cmd_track_books(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
         session = authorized_session(credentials)
         titles = tab_titles(session, sheet_id)
         tracked = versions.from_tracked_tab(read_tab(session, sheet_id, versions.TAB)) if versions.TAB in titles else []
-        found = [book for title in titles if title.startswith(versions.SOURCE_TABS)
-                 for book in versions.from_search_tab(read_tab(session, sheet_id, title), args.min_pages)]  # fmt: skip
-        if args.watchlist and args.watchlist.exists():
-            with args.watchlist.open(newline="", encoding="utf-8") as fh:
-                found += versions.from_watchlist(list(csv.reader(fh)))
     except SheetsError as exc:
         say(f"Error: {exc}")
         return 2
-    books = versions.merge(tracked, found, today)
+    chosen = []
+    if args.watchlist and args.watchlist.exists():
+        with args.watchlist.open(newline="", encoding="utf-8") as fh:
+            chosen = versions.from_watchlist(list(csv.reader(fh)))
+    books = versions.merge(tracked, chosen, today)
+    before, after = {b.key for b in tracked}, {b.key for b in books}
     due = sorted((b for b in books if b.active), key=lambda b: b.last_checked)[: args.limit]
-    say(f"Tracking {len(books)} book(s) ({len(books) - len(tracked)} new); checking {len(due)}...")
+    say(f"Tracking {len(books)} book(s) ({len(after - before)} new, {len(before - after)} no longer tracked: "
+        f"nobody chose them); checking {len(due)}...")
     fetcher = make_fetcher(args)
     events = []
     for book in due:
@@ -1004,10 +1005,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("track-books", help='watch the Google Sheet\'s books for new versions ("Tracked books" tab)')
     p.add_argument("--sheet-id", help="the id in the sheet's URL (default: GOOGLE_SHEET_ID)")
-    p.add_argument("--min-pages", type=int, default=10, help="track the search tabs' books of this many pages or more")
     p.add_argument("--limit", type=int, default=500, help="books checked per run, the least recently checked first")
-    p.add_argument("--watchlist", type=Path, help="a .csv of books to track too (Title, Link, Found on (page), "
-                   "Authority, Source website, Pages, Notes)")
+    p.add_argument("--watchlist", type=Path, help="a .csv of the books to track besides those added to the tab by "
+                   "hand (Title, Link, Found on (page), Authority, Source website, Pages, Notes)")
     p.add_argument("--summary", type=Path, help="write what changed to this .md file")
     p.add_argument("--delay", type=float, default=1.0, help="seconds between requests to one host (default 1)")
     p.add_argument("--verbose", action="store_true")

@@ -1,9 +1,8 @@
 """Watching the books found for new versions: the "Tracked books" tab of the Google Sheet.
 
-Every book of 10 or more pages in the sheet's search tabs is tracked, and so is any book added to
-the tab by hand: a row with its title and its PDF's address (Link), or the address of the page it
-is published on (Found on), for books already sold on Amazon whose next edition should be
-republished quickly. Each check:
+Only the books you chose are tracked: those of automation/watchlist.csv and any book added to the
+tab by hand (a row with its title and its PDF's address (Link), or the address of the page it is
+published on (Found on)). The search tabs' books are not tracked until you choose them. Each check:
 - downloads the book again: different content at the same address is a new version, and a book
   that is gone may have been replaced;
 - reads the page that linked to it again, looking for a newer edition of the same title
@@ -18,15 +17,12 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from govweb.classify import best_title, book_score, clean_title, document_type, title_from_url
-from govweb.exclude import excluded_states
+from govweb.classify import best_title, document_type, title_from_url
 from govweb.export import hyperlink, safe_cell
 from govweb.parse import parse_html
 from govweb.pdfpages import count_pages
 
 TAB = "Tracked books"
-SOURCE_TABS = ("Search - ", "States - ")  # the search tabs whose books are tracked
-MIN_PAGES = 18
 MAX_BYTES = 150_000_000
 COLUMNS = ["Title (link)", "Link", "Authority", "State", "Source website", "Found on (page)", "Pages", "Track",
            "Status", "Newer version (link)", "Changed on", "Last checked", "Tracked since", "Added by", "Notes",
@@ -156,15 +152,6 @@ class Tracked:
                 newer, *(safe_cell(v) for v in (self.changed_on, self.last_checked, self.tracked_since, self.added_by,
                                                 self.notes, self.sha256, self.seen))]  # fmt: skip
 
-    @property
-    def paperwork(self) -> bool:
-        return book_score(self.title, self.link or self.found_on) <= 0
-
-    @property
-    def untouched(self) -> bool:
-        """Added by a search, with nothing of the user's or of its checks worth keeping."""
-        return self.added_by == SEARCH and not (self.notes or self.newer_link or self.changed_on) and self.active
-
 
 def _table(rows: list[list[str]]) -> list[dict[str, str]]:
     if not rows:
@@ -201,24 +188,6 @@ def from_tracked_tab(rows: list[list[str]]) -> list[Tracked]:
     return books
 
 
-def from_search_tab(rows: list[list[str]], min_pages: int = MIN_PAGES) -> list[Tracked]:
-    """The books of a search tab worth tracking: those of ``min_pages`` pages or more that aren't
-    paperwork (grant notices, speeches, lists; govweb.classify.book_score)."""
-    books = []
-    for r in _table(rows):
-        link, title = parse_hyperlink(r.get("Title (link)", ""))
-        title = clean_title(title) or title
-        if book_score(title, link) <= 0:
-            continue
-        pages = r.get("Pages", "")
-        if r.get("State", "").strip().upper() in excluded_states():  # its publications can't be reused
-            continue
-        if link and pages.isdigit() and int(pages) >= min_pages:
-            books.append(Tracked(link, title, r.get("Authority", ""), r.get("State", ""), r.get("Source website", ""),
-                                 r.get("Found on (page)", ""), pages))  # fmt: skip
-    return books
-
-
 def from_watchlist(rows: list[list[str]]) -> list[Tracked]:
     """Books listed by hand in a file of the repository (automation/watchlist.csv): a Title with a
     Link (the PDF) and/or a Found on (page). They are tracked like books added to the tab by hand."""
@@ -231,26 +200,23 @@ def from_watchlist(rows: list[list[str]]) -> list[Tracked]:
     return books
 
 
-def merge(tracked: list[Tracked], found: list[Tracked], today: str) -> list[Tracked]:
-    """The tracked books, plus the found ones not tracked yet (one row per book). A book a search
-    added is brought up to date from the search tabs (title, pages, where it was found), and left
-    out when it is paperwork the user hasn't written about and no check found a change for."""
-    fresh = {book.key: book for book in found}
+def merge(tracked: list[Tracked], chosen: list[Tracked], today: str) -> list[Tracked]:
+    """The books to track (one row per book): those added to the tab by hand, plus the ``chosen``
+    ones not tracked yet. A row an earlier search added is dropped unless the user wrote a note on
+    it or chose the book: nobody picked it."""
+    picked = {book.key for book in chosen}
     merged: list[Tracked] = []
     known: set[str] = set()
     for book in tracked:
         if book.key in known:
             continue
-        newer = fresh.get(book.key)
-        if newer and book.added_by == SEARCH:
-            book.title, book.pages = newer.title or book.title, newer.pages or book.pages
-            book.authority, book.state = newer.authority or book.authority, newer.state or book.state
-            book.website, book.found_on = newer.website or book.website, newer.found_on or book.found_on
-        if book.untouched and book.paperwork:
-            continue
+        if book.added_by == SEARCH:
+            if not (book.notes or book.key in picked):
+                continue
+            book.added_by = YOU
         known.add(book.key)
         merged.append(book)
-    for book in found:
+    for book in chosen:
         if book.key not in known:
             known.add(book.key)
             book.tracked_since = book.tracked_since or today

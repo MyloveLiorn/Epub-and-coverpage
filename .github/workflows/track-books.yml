@@ -1,9 +1,10 @@
 name: Track books
 
-# Weekly: look again at the books in the Google Sheet (and those added to its "Tracked books" tab
-# by hand) for new versions: a newer edition on the page that linked to a book, different content
-# at a book's address, or a book gone from its site. The "Tracked books" tab shows the result and
-# the run's page lists what changed.
+# Weekly: look again at the books you chose (automation/watchlist.csv, and those added by hand to
+# the Google Sheet's "Tracked books" tab) for new versions: a newer edition on the page that linked
+# to a book, different content at a book's address, or a book gone from its site. Books a search
+# found are not tracked until you choose them. The "Tracked books" tab shows the result and the
+# run's page lists what changed.
 on:
   schedule:
     - cron: "41 5 * * 3"  # Wednesdays 05:41 UTC (08:41 in UTC+3)
