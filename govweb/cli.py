@@ -688,6 +688,9 @@ def cmd_track_books(args: argparse.Namespace, conn: sqlite3.Connection) -> int:
         tracked = versions.from_tracked_tab(read_tab(session, sheet_id, versions.TAB)) if versions.TAB in titles else []
         found = [book for title in titles if title.startswith(versions.SOURCE_TABS)
                  for book in versions.from_search_tab(read_tab(session, sheet_id, title), args.min_pages)]  # fmt: skip
+        if args.watchlist and args.watchlist.exists():
+            with args.watchlist.open(newline="", encoding="utf-8") as fh:
+                found += versions.from_watchlist(list(csv.reader(fh)))
     except SheetsError as exc:
         say(f"Error: {exc}")
         return 2
@@ -1003,6 +1006,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--sheet-id", help="the id in the sheet's URL (default: GOOGLE_SHEET_ID)")
     p.add_argument("--min-pages", type=int, default=10, help="track the search tabs' books of this many pages or more")
     p.add_argument("--limit", type=int, default=500, help="books checked per run, the least recently checked first")
+    p.add_argument("--watchlist", type=Path, help="a .csv of books to track too (Title, Link, Found on (page), "
+                   "Authority, Source website, Pages, Notes)")
     p.add_argument("--summary", type=Path, help="write what changed to this .md file")
     p.add_argument("--delay", type=float, default=1.0, help="seconds between requests to one host (default 1)")
     p.add_argument("--verbose", action="store_true")

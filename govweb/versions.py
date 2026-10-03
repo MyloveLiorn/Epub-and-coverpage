@@ -219,6 +219,18 @@ def from_search_tab(rows: list[list[str]], min_pages: int = MIN_PAGES) -> list[T
     return books
 
 
+def from_watchlist(rows: list[list[str]]) -> list[Tracked]:
+    """Books listed by hand in a file of the repository (automation/watchlist.csv): a Title with a
+    Link (the PDF) and/or a Found on (page). They are tracked like books added to the tab by hand."""
+    books = []
+    for r in _table(rows):
+        title, link, found_on = r.get("Title", "").strip(), _url(r.get("Link", "")), _url(r.get("Found on (page)", ""))
+        if title and (link or found_on):
+            books.append(Tracked(link, title, r.get("Authority", ""), "", r.get("Source website", ""), found_on,
+                                 r.get("Pages", ""), added_by=YOU, notes=r.get("Notes", "")))  # fmt: skip
+    return books
+
+
 def merge(tracked: list[Tracked], found: list[Tracked], today: str) -> list[Tracked]:
     """The tracked books, plus the found ones not tracked yet (one row per book). A book a search
     added is brought up to date from the search tabs (title, pages, where it was found), and left

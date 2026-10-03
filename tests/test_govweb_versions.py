@@ -151,6 +151,36 @@ def test_track_books_command_keeps_the_tab(tmp_path, monkeypatch, capsys):
     assert sheet.tabs[versions.TAB][1][versions.COLUMNS.index("Status")] == versions.NO_CHANGE
 
 
+def test_watchlist_books_are_tracked_once_whatever_their_title(tmp_path, monkeypatch):
+    header = ["Title", "Link", "Found on (page)", "Authority", "Source website", "Pages", "Notes"]
+    watch = versions.from_watchlist([
+        header,
+        ["Tide and Current Glossary (2000)", "https://x.gov/tides.pdf", "https://x.gov/tides", "NOAA", "x.gov", "34", "n"],
+        ["No address", "", "", "", "", "", ""],
+        ["", "https://x.gov/untitled.pdf", "", "", "", "", ""],
+    ])  # fmt: skip
+    assert [(b.title, b.link, b.added_by, b.notes) for b in watch] == [
+        ("Tide and Current Glossary (2000)", "https://x.gov/tides.pdf", versions.YOU, "n")]
+    merged = versions.merge([], watch, "2026-10-03")
+    assert [b.tracked_since for b in merged] == ["2026-10-03"]
+    assert len(versions.merge(merged, watch, "2026-10-10")) == 1
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "watch.csv").write_text(
+        "Title,Link,Found on (page)\nTide and Current Glossary (2000),https://x.gov/tides.pdf,https://x.gov/tides\n")
+    sheet = SheetSession({"Search - immigration": search_tab()})
+    monkeypatch.setattr("govweb.sheets.authorized_session", lambda credentials: sheet)
+    monkeypatch.setenv("GOOGLE_SERVICE_ACCOUNT_JSON", "{}")
+    fetcher = FakeFetcher({"https://x.gov/tides.pdf": (200, "application/pdf", b"%PDF-1.4 tides"),
+                           "https://x.gov/tides": (200, "text/html", html("Tides"))})  # fmt: skip
+    monkeypatch.setattr(cli, "make_fetcher", lambda args: fetcher)
+    for _ in range(2):
+        assert cli.main(["--db", "w.db", "track-books", "--sheet-id", "S", "--watchlist", "watch.csv"]) == 0
+    tab = sheet.tabs[versions.TAB]
+    assert len(tab) == 2 and tab[1][versions.COLUMNS.index("Added by")] == versions.YOU
+    assert tab[1][versions.COLUMNS.index("Status")] == versions.NO_CHANGE
+
+
 def test_paperwork_isnt_tracked_and_search_rows_are_kept_up_to_date():
     today = "2026-10-01"
     found = versions.from_search_tab(search_tab(

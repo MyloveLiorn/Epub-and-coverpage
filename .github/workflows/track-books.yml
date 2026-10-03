@@ -36,5 +36,5 @@ jobs:
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID || '1gnjQu_hi_q-Y3gXBjmjdJerYwo9psUrGda3NQtCUtTA' }}
         run: |
           mkdir -p results
-          govweb --db results/track.db track-books --summary results/versions.md --verbose
+          govweb --db results/track.db track-books --watchlist automation/watchlist.csv --summary results/versions.md --verbose
           cat results/versions.md >> "$GITHUB_STEP_SUMMARY"
